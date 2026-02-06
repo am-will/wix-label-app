@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wix Label Generator</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', -apple-system, sans-serif;
+      background: #f9fafb;
+      color: #111827;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ---- TOP BAR ---- */
+    .topbar {
+      background: #ffffff;
+      border-bottom: 1px solid #e5e7eb;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+      -webkit-app-region: drag;
+    }
+    .topbar h1 {
+      font-size: 18px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .topbar-actions {
+      display: flex;
+      gap: 8px;
+      -webkit-app-region: no-drag;
+    }
+
+    /* ---- BUTTONS ---- */
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s;
+    }
+    .btn:hover { filter: brightness(0.95); }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary { background: #dc2626; color: #fff; }
+    .btn-secondary { background: #e5e7eb; color: #374151; }
+    .btn-success { background: #059669; color: #fff; }
+    .btn-outline {
+      background: transparent;
+      border: 1px solid #d1d5db;
+      color: #374151;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-lg { padding: 12px 24px; font-size: 15px; }
+
+    /* ---- LAYOUT ---- */
+    .main-content {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+    .sidebar {
+      width: 320px;
+      background: #ffffff;
+      border-right: 1px solid #e5e7eb;
+      padding: 20px;
+      overflow-y: auto;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .preview-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      background: #f3f4f6;
+    }
+
+    /* ---- SIDEBAR SECTIONS ---- */
+    .section-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #9ca3af;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .card {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    /* ---- FORM CONTROLS ---- */
+    .form-group { margin-bottom: 12px; }
+    .form-group:last-child { margin-bottom: 0; }
+    .form-group label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 4px;
+    }
+    .form-group input[type="text"],
+    .form-group input[type="password"],
+    .form-group input[type="number"],
+    .form-group select,
+    .form-group textarea {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: inherit;
+      background: #fff;
+      color: #111827;
+    }
+    .form-group textarea { resize: vertical; min-height: 60px; }
+    .form-group input:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+      outline: none;
+      border-color: #dc2626;
+      box-shadow: 0 0 0 2px rgba(220,38,38,0.1);
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+    }
+    .toggle-row span { font-size: 13px; color: #374151; }
+    .toggle {
+      width: 40px; height: 22px;
+      background: #d1d5db;
+      border-radius: 11px;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle.active { background: #dc2626; }
+    .toggle::after {
+      content: '';
+      width: 18px; height: 18px;
+      background: #fff;
+      border-radius: 50%;
+      position: absolute;
+      top: 2px; left: 2px;
+      transition: left 0.2s;
+    }
+    .toggle.active::after { left: 20px; }
+    .schedule-times {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .time-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 12px;
+      font-size: 12px;
+      color: #dc2626;
+      font-weight: 600;
+    }
+    .time-chip .remove {
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    /* ---- STATUS BAR ---- */
+    .status-bar {
+      background: #ffffff;
+      border-top: 1px solid #e5e7eb;
+      padding: 8px 24px;
+      font-size: 12px;
+      color: #6b7280;
+      display: flex;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+    }
+    .status-dot.green { background: #059669; }
+    .status-dot.yellow { background: #f59e0b; }
+    .status-dot.red { background: #dc2626; }
+
+    /* ---- EMPTY STATE ---- */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #9ca3af;
+      text-align: center;
+      gap: 12px;
+    }
+    .empty-state .icon { font-size: 48px; }
+    .empty-state p { font-size: 14px; max-width: 300px; }
+
+    /* ---- STATS ROW ---- */
+    .stats-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .stat-badge {
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .stat-delivery { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+    .stat-pickup { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
+    .stat-total { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
+
+    /* ---- LOADING ---- */
+    .spinner {
+      width: 20px; height: 20px;
+      border: 2px solid #e5e7eb;
+      border-top-color: #dc2626;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ---- TABS (for settings sections) ---- */
+    .tab-row {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 12px;
+    }
+    .tab-btn {
+      padding: 6px 12px;
+      border: none;
+      background: transparent;
+      font-size: 12px;
+      font-weight: 600;
+      color: #9ca3af;
+      cursor: pointer;
+      border-radius: 6px;
+    }
+    .tab-btn.active { background: #fef2f2; color: #dc2626; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* ---- NOTIFICATION TOAST ---- */
+    .toast {
+      position: fixed;
+      bottom: 60px;
+      right: 24px;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      z-index: 999;
+      transform: translateY(100px);
+      opacity: 0;
+      transition: all 0.3s;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { background: #059669; }
+    .toast.error { background: #dc2626; }
+    .toast.info { background: #2563eb; }
+  </style>
+</head>
+<body>
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <h1>🏷️ Wix Label Generator</h1>
+    <div class="topbar-actions">
+      <button class="btn btn-primary btn-lg" id="btn-pull" onclick="pullOrders()">
+        Pull Orders
+      </button>
+    </div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main-content">
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <!-- Quick Stats -->
+      <div id="stats-section" style="display:none;">
+        <div class="section-title">Current Batch</div>
+        <div class="stats-row" id="stats-row"></div>
+        <div style="display:flex;gap:6px;margin-top:12px;">
+          <button class="btn btn-primary" style="flex:1;" onclick="printLabels()">🖨️ Print</button>
+          <button class="btn btn-secondary" style="flex:1;" onclick="savePdf()">💾 Save PDF</button>
+        </div>
+      </div>
+
+      <!-- Settings Tabs -->
+      <div>
+        <div class="section-title">Settings</div>
+        <div class="tab-row">
+          <button class="tab-btn active" onclick="switchTab('connection')">Connection</button>
+          <button class="tab-btn" onclick="switchTab('schedule')">Schedule</button>
+          <button class="tab-btn" onclick="switchTab('printing')">Printing</button>
+          <button class="tab-btn" onclick="switchTab('packs')">Packs</button>
+        </div>
+
+        <!-- Connection Tab -->
+        <div class="tab-content active" id="tab-connection">
+          <div class="card">
+            <div class="form-group">
+              <label>Order Source</label>
+              <select id="order-source" onchange="updateSourceModeUI()">
+                <option value="wix">Wix API</option>
+                <option value="csv">CSV Import</option>
+              </select>
+            </div>
+            <div id="wix-connection-fields">
+            <div class="form-group">
+              <label>Wix API Key</label>
+              <input type="password" id="wix-api-key" placeholder="Enter your Wix API key">
+            </div>
+            <div class="form-group">
+              <label>Wix Site ID</label>
+              <input type="text" id="wix-site-id" placeholder="Enter your Wix Site ID">
+            </div>
+            </div>
+            <div id="csv-connection-fields" style="display:none;">
+              <div class="form-group">
+                <label>CSV File</label>
+                <div style="display:flex;gap:6px;">
+                  <input type="text" id="csv-path" readonly style="flex:1;" placeholder="Choose Orders.csv file">
+                  <button class="btn btn-outline" onclick="chooseCsvFile()">Browse</button>
+                </div>
+              </div>
+              <button class="btn btn-outline" style="width:100%;margin-top:0;" onclick="importCsvNow()">Import CSV Now</button>
+            </div>
+            <div class="form-group">
+              <label>Pull orders from last (hours)</label>
+              <input type="number" id="pull-range" value="24" min="1" max="168">
+            </div>
+            <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="saveAllSettings()">Save Connection</button>
+          </div>
+        </div>
+
+        <!-- Schedule Tab -->
+        <div class="tab-content" id="tab-schedule">
+          <div class="card">
+            <div class="toggle-row">
+              <span>Enable auto-pull</span>
+              <div class="toggle" id="toggle-schedule" onclick="toggleSchedule()"></div>
+            </div>
+            <div class="toggle-row">
+              <span>Auto-print on pull</span>
+              <div class="toggle" id="toggle-autoprint" onclick="toggleAutoPrint()"></div>
+            </div>
+            <div class="form-group" style="margin-top:12px;">
+              <label>Scheduled Times</label>
+              <div style="display:flex;gap:6px;">
+                <input type="time" id="new-time" style="flex:1;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                <button class="btn btn-secondary" onclick="addScheduleTime()">Add</button>
+              </div>
+              <div class="schedule-times" id="schedule-times"></div>
+            </div>
+            <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="saveAllSettings()">Save Schedule</button>
+          </div>
+        </div>
+
+        <!-- Printing Tab -->
+        <div class="tab-content" id="tab-printing">
+          <div class="card">
+            <div class="form-group">
+              <label>Printer</label>
+              <select id="printer-select">
+                <option value="">System Default</option>
+              </select>
+              <button class="btn btn-outline" style="width:100%;margin-top:6px;" onclick="refreshPrinters()">Refresh Printers</button>
+            </div>
+            <div class="form-group">
+              <label>Default Save Folder</label>
+              <div style="display:flex;gap:6px;">
+                <input type="text" id="save-path" readonly style="flex:1;">
+                <button class="btn btn-outline" onclick="chooseSaveDir()">Browse</button>
+              </div>
+            </div>
+            <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="saveAllSettings()">Save Print Settings</button>
+          </div>
+        </div>
+
+        <!-- Packs Tab -->
+        <div class="tab-content" id="tab-packs">
+          <div class="card">
+            <div class="form-group">
+              <label>Weight Loss Pack Keywords (comma-separated)</label>
+              <input type="text" id="wl-keywords" placeholder="weight loss, wl pack">
+            </div>
+            <div class="form-group">
+              <label>Weight Loss Pack Items (one per line)</label>
+              <textarea id="wl-items" rows="5"></textarea>
+            </div>
+            <div class="form-group">
+              <label>Weekly Pack Keywords (comma-separated)</label>
+              <input type="text" id="wp-keywords" placeholder="weekly pack, weekly meal">
+            </div>
+            <div class="form-group">
+              <label>Weekly Pack Items (one per line)</label>
+              <textarea id="wp-items" rows="5"></textarea>
+            </div>
+            <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="saveAllSettings()">Save Pack Config</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PREVIEW AREA -->
+    <div class="preview-area" id="preview-area">
+      <div class="empty-state">
+        <div class="icon">📋</div>
+        <p>Click <strong>Pull Orders</strong> to fetch new orders from Wix and generate labels.</p>
+        <p style="font-size:12px;color:#d1d5db;">Make sure your API Key and Site ID are configured in Settings.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div class="status-bar">
+    <div id="status-text">
+      <span class="status-dot yellow"></span> Not connected
+    </div>
+    <div id="status-right">Ready</div>
+  </div>
+
+  <!-- TOAST -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // ============================================================
+    // STATE
+    // ============================================================
+    let currentOrders = [];
+    let currentHtml = '';
+    let appSettings = {};
+    let logoDataUrl = '';
+
+    // ============================================================
+    // INIT
+    // ============================================================
+    async function init() {
+      appSettings = await window.api.getSettings();
+      logoDataUrl = await window.api.getLogoDataUrl() || '';
+      populateSettings();
+      refreshPrinters();
+
+      // Listen for scheduled pulls
+      window.api.onScheduledPull(async () => {
+        showToast('Scheduled pull triggered...', 'info');
+        await pullOrders();
+        if (appSettings.autoPrint && currentOrders.length > 0) {
+          await printLabels();
+        }
+      });
+    }
+
+    function populateSettings() {
+      document.getElementById('order-source').value = appSettings.orderSourceMode || 'wix';
+      document.getElementById('wix-api-key').value = appSettings.wixApiKey || '';
+      document.getElementById('wix-site-id').value = appSettings.wixSiteId || '';
+      document.getElementById('csv-path').value = appSettings.csvPath || '';
+      document.getElementById('pull-range').value = appSettings.pullRangeHours || 24;
+      document.getElementById('save-path').value = appSettings.savePath || '';
+
+      // Schedule
+      const toggleEl = document.getElementById('toggle-schedule');
+      if (appSettings.autoSchedule) toggleEl.classList.add('active');
+      const toggleAp = document.getElementById('toggle-autoprint');
+      if (appSettings.autoPrint) toggleAp.classList.add('active');
+      renderScheduleTimes();
+
+      // Packs
+      document.getElementById('wl-keywords').value = (appSettings.weightLossKeywords || []).join(', ');
+      document.getElementById('wl-items').value = (appSettings.weightLossItems || []).join('\n');
+      document.getElementById('wp-keywords').value = (appSettings.weeklyPackKeywords || []).join(', ');
+      document.getElementById('wp-items').value = (appSettings.weeklyPackItems || []).join('\n');
+
+      updateSourceModeUI();
+      refreshConnectionStatus();
+    }
+
+    // ============================================================
+    // PULL ORDERS
+    // ============================================================
+    async function pullOrders() {
+      const btn = document.getElementById('btn-pull');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Pulling...';
+      document.getElementById('status-right').textContent = 'Fetching orders...';
+
+      try {
+        currentOrders = await window.api.pullOrders();
+
+        if (currentOrders.length === 0) {
+          const source = (appSettings.orderSourceMode || 'wix') === 'csv' ? 'CSV file' : 'Wix';
+          document.getElementById('preview-area').innerHTML = `
+            <div class="empty-state">
+              <div class="icon">✅</div>
+              <p>No orders found from ${source} in the last ${appSettings.pullRangeHours || 24} hours.</p>
+            </div>`;
+          document.getElementById('stats-section').style.display = 'none';
+          showToast('No new orders found', 'info');
+        } else {
+          renderLabels();
+          showToast(`Pulled ${currentOrders.length} order(s)`, 'success');
+        }
+
+        document.getElementById('status-right').textContent =
+          `Last pull: ${new Date().toLocaleTimeString()}`;
+      } catch (err) {
+        showToast(err.message, 'error');
+        document.getElementById('status-right').textContent = 'Pull failed';
+      }
+
+      btn.disabled = false;
+      btn.innerHTML = 'Pull Orders';
+    }
+
+    // ============================================================
+    // LABEL HTML GENERATION
+    // ============================================================
+    function escapeHtml(str) {
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function formatDate(iso) {
+      try {
+        return new Date(iso).toLocaleDateString('en-US', {
+          weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+          hour: 'numeric', minute: '2-digit', hour12: true
+        });
+      } catch { return iso; }
+    }
+
+    const CONFIG = {
+      DELIVERY: { color: '#dc2626', emoji: '🚚', label: 'DELIVERY' },
+      PICKUP:   { color: '#059669', emoji: '📦', label: 'PICKUP' },
+      WEIGHT_LOSS_PACK: { color: '#dc2626', emoji: '❤️', label: 'Weight Loss Pack', bg: '#fef2f2', border: '#fecaca' },
+      WEEKLY_PACK:      { color: '#7c3aed', emoji: '📅', label: 'Weekly Pack',      bg: '#f5f3ff', border: '#ddd6fe' },
+      CUSTOM:           { color: '#d97706', emoji: '⭐', label: 'Custom Order',     bg: '#fffbeb', border: '#fde68a' }
+    };
+
+    function generateLabelHtml(order) {
+      const dm = CONFIG[order.deliveryMethod];
+      const ot = CONFIG[order.orderType];
+      const isDelivery = order.deliveryMethod === 'DELIVERY';
+
+      const itemRows = order.items.map((item, i) => {
+        const isLast = i === order.items.length - 1;
+        const border = isLast ? '' : 'border-bottom:1px solid #f0f0f0;';
+        const optCell = item.option
+          ? `<td style="padding:6px 8px;color:#6b7280;font-size:12px;${border}">${escapeHtml(item.option)}</td>`
+          : `<td style="padding:6px 8px;${border}"></td>`;
+        return `<tr>
+          <td style="padding:6px 0;color:#374151;${border}">${escapeHtml(item.name)}</td>
+          ${optCell}
+          <td style="padding:6px 0;color:#374151;text-align:right;white-space:nowrap;${border}">x ${item.qty}</td>
+        </tr>`;
+      }).join('');
+
+      let addressBlock = '';
+      if (isDelivery && order.formattedAddress) {
+        const lines = order.formattedAddress.split('\n').map(l => escapeHtml(l)).join('<br>');
+        const note = order.deliveryNote
+          ? `<div style="font-size:13px;color:#dc2626;font-weight:600;margin-top:6px;">${escapeHtml(order.deliveryNote)}</div>`
+          : '';
+        addressBlock = `
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px 16px;margin-bottom:18px;">
+            <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#991b1b;font-weight:700;margin-bottom:6px;">Shipping Address</div>
+            <div style="font-size:14px;color:#1f2937;line-height:1.5;">
+              ${escapeHtml(order.customerName)}<br>${lines}
+            </div>
+            ${note}
+          </div>`;
+      } else {
+        addressBlock = `
+          <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:10px 16px;margin-bottom:18px;">
+            <div style="font-size:14px;color:#065f46;font-weight:600;">Customer will pick up order</div>
+          </div>`;
+      }
+
+      const locationHtml = isDelivery && order.location
+        ? `<span style="color:#ffffff;font-size:14px;font-weight:700;letter-spacing:1px;">${escapeHtml(order.location)}</span>`
+        : '';
+      const logoHtml = logoDataUrl
+        ? `<img src="${logoDataUrl}" alt="Fuel Up logo" style="max-height:56px;max-width:180px;object-fit:contain;">`
+        : '';
+
+      return `
+        <div style="width:480px;border:3px solid ${dm.color};border-radius:10px;padding:0;margin:24px auto;font-family:'Segoe UI',Arial,sans-serif;background:#ffffff;page-break-inside:avoid;overflow:hidden;">
+          <div style="background:${dm.color};padding:6px 20px;display:flex;justify-content:space-between;align-items:center;">
+            <span style="color:#ffffff;font-size:14px;font-weight:700;letter-spacing:1px;">${dm.emoji} ${dm.label}</span>
+            ${locationHtml}
+          </div>
+          <div style="padding:20px 24px 24px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px;padding-bottom:12px;border-bottom:2px solid #e5e7eb;">
+              <div style="min-width:0;flex:1;">
+                <div style="font-size:28px;font-weight:800;color:#dc2626;text-transform:uppercase;line-height:1.1;margin-bottom:2px;">${escapeHtml(order.customerName)}</div>
+                <div style="font-size:18px;font-weight:700;color:#111827;">Order #${escapeHtml(order.orderNumber)} (${order.totalItemCount} items)</div>
+                <div style="font-size:12px;color:#6b7280;margin-top:4px;">${formatDate(order.createdDate)}</div>
+              </div>
+              <div style="flex-shrink:0;display:flex;justify-content:flex-end;">
+                ${logoHtml}
+              </div>
+            </div>
+            <div style="font-size:13px;color:#6b7280;margin-bottom:16px;">
+              ${escapeHtml(order.customerName)}${order.customerEmail ? ' | ' + escapeHtml(order.customerEmail) : ''}${order.customerPhone ? ' | ' + escapeHtml(order.customerPhone) : ''}
+            </div>
+            ${addressBlock}
+            <div style="display:inline-flex;align-items:center;gap:6px;padding:5px 14px;border-radius:6px;background:${ot.bg};border:1px solid ${ot.border};margin-bottom:16px;">
+              <span style="font-size:13px;font-weight:700;color:${ot.color};">${ot.emoji} ${ot.label}</span>
+            </div>
+            <div style="margin-bottom:4px;">
+              <table style="width:100%;border-collapse:collapse;font-size:13px;">${itemRows}</table>
+            </div>
+            <div style="border-top:2px solid #e5e7eb;padding-top:8px;margin-top:4px;">
+              <div style="display:flex;justify-content:flex-end;font-size:13px;color:#6b7280;gap:24px;">
+                <span>Subtotal: $${order.subtotal}</span>
+                <span>Shipping: $${order.shipping}</span>
+                <span style="font-weight:700;color:#111827;">Total: $${order.total}</span>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    function buildFullDocument(orders) {
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      const labels = orders.map(o => generateLabelHtml(o)).join('');
+
+      return `<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<style>
+  @page { size: letter; margin: 0.5in; }
+  body { margin:0; padding:20px; background:#fff; font-family:'Segoe UI',Arial,sans-serif; }
+  @media print { body { padding:0; } }
+</style></head><body>
+  <div style="text-align:center;margin-bottom:30px;padding-bottom:16px;border-bottom:2px solid #d1d5db;">
+    <h1 style="font-size:22px;color:#111827;margin:0;">Order Labels</h1>
+    <p style="font-size:13px;color:#6b7280;margin:4px 0 0;">Generated: ${dateStr}, ${timeStr} | ${orders.length} order${orders.length !== 1 ? 's' : ''}</p>
+  </div>
+  ${labels}
+</body></html>`;
+    }
+
+    // ============================================================
+    // RENDER PREVIEW
+    // ============================================================
+    function renderLabels() {
+      const deliveryCount = currentOrders.filter(o => o.deliveryMethod === 'DELIVERY').length;
+      const pickupCount = currentOrders.filter(o => o.deliveryMethod === 'PICKUP').length;
+
+      // Stats
+      document.getElementById('stats-section').style.display = 'block';
+      document.getElementById('stats-row').innerHTML = `
+        <span class="stat-badge stat-total">${currentOrders.length} total</span>
+        <span class="stat-badge stat-delivery">🚚 ${deliveryCount} delivery</span>
+        <span class="stat-badge stat-pickup">📦 ${pickupCount} pickup</span>
+      `;
+
+      // Build HTML
+      currentHtml = buildFullDocument(currentOrders);
+
+      // Render preview (individual cards, not the full print document)
+      const previewHtml = currentOrders.map(o => generateLabelHtml(o)).join('');
+      document.getElementById('preview-area').innerHTML = previewHtml;
+    }
+
+    // ============================================================
+    // PRINT & SAVE
+    // ============================================================
+    async function printLabels() {
+      if (!currentHtml || !currentOrders.length) {
+        showToast('No labels to print. Pull orders first.', 'error');
+        return;
+      }
+      try {
+        const printerName = document.getElementById('printer-select').value || undefined;
+        await window.api.printLabels({ html: currentHtml, printerName });
+        showToast('Labels sent to printer!', 'success');
+      } catch (err) {
+        showToast('Print failed: ' + err.message, 'error');
+      }
+    }
+
+    async function savePdf() {
+      if (!currentHtml || !currentOrders.length) {
+        showToast('No labels to save. Pull orders first.', 'error');
+        return;
+      }
+      try {
+        const now = new Date();
+        const name = `order-labels-${now.toISOString().split('T')[0]}-${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}.pdf`;
+        const result = await window.api.savePdf({ html: currentHtml, suggestedName: name });
+        if (result) showToast(`Saved to ${result}`, 'success');
+      } catch (err) {
+        showToast('Save failed: ' + err.message, 'error');
+      }
+    }
+
+    // ============================================================
+    // SETTINGS
+    // ============================================================
+    function refreshConnectionStatus() {
+      const mode = document.getElementById('order-source').value || 'wix';
+      const statusEl = document.getElementById('status-text');
+
+      if (mode === 'csv') {
+        if ((appSettings.csvPath || '').trim()) {
+          statusEl.innerHTML = '<span class="status-dot green"></span> CSV source ready';
+        } else {
+          statusEl.innerHTML = '<span class="status-dot yellow"></span> CSV source not set';
+        }
+        return;
+      }
+
+      if ((appSettings.wixApiKey || '').trim() && (appSettings.wixSiteId || '').trim()) {
+        statusEl.innerHTML = '<span class="status-dot green"></span> Connected to Wix';
+      } else {
+        statusEl.innerHTML = '<span class="status-dot yellow"></span> Wix credentials missing';
+      }
+    }
+
+    function updateSourceModeUI() {
+      const mode = document.getElementById('order-source').value || 'wix';
+      document.getElementById('wix-connection-fields').style.display = mode === 'wix' ? 'block' : 'none';
+      document.getElementById('csv-connection-fields').style.display = mode === 'csv' ? 'block' : 'none';
+      refreshConnectionStatus();
+    }
+
+    async function saveAllSettings(showSavedToast = true) {
+      const newSettings = {
+        orderSourceMode: document.getElementById('order-source').value || 'wix',
+        csvPath: document.getElementById('csv-path').value.trim(),
+        wixApiKey: document.getElementById('wix-api-key').value.trim(),
+        wixSiteId: document.getElementById('wix-site-id').value.trim(),
+        pullRangeHours: parseInt(document.getElementById('pull-range').value) || 24,
+        savePath: document.getElementById('save-path').value,
+        autoSchedule: document.getElementById('toggle-schedule').classList.contains('active'),
+        autoPrint: document.getElementById('toggle-autoprint').classList.contains('active'),
+        scheduleTimes: appSettings.scheduleTimes || [],
+        weightLossKeywords: document.getElementById('wl-keywords').value.split(',').map(s => s.trim()).filter(Boolean),
+        weeklyPackKeywords: document.getElementById('wp-keywords').value.split(',').map(s => s.trim()).filter(Boolean),
+        weightLossItems: document.getElementById('wl-items').value.split('\n').map(s => s.trim()).filter(Boolean),
+        weeklyPackItems: document.getElementById('wp-items').value.split('\n').map(s => s.trim()).filter(Boolean)
+      };
+
+      appSettings = await window.api.saveSettings(newSettings);
+      populateSettings();
+      if (showSavedToast) showToast('Settings saved!', 'success');
+    }
+
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('tab-' + tabName).classList.add('active');
+    }
+
+    function toggleSchedule() {
+      document.getElementById('toggle-schedule').classList.toggle('active');
+    }
+    function toggleAutoPrint() {
+      document.getElementById('toggle-autoprint').classList.toggle('active');
+    }
+
+    function addScheduleTime() {
+      const input = document.getElementById('new-time');
+      const time = input.value;
+      if (!time) return;
+      if (!appSettings.scheduleTimes) appSettings.scheduleTimes = [];
+      if (!appSettings.scheduleTimes.includes(time)) {
+        appSettings.scheduleTimes.push(time);
+        appSettings.scheduleTimes.sort();
+        renderScheduleTimes();
+      }
+      input.value = '';
+    }
+
+    function removeScheduleTime(time) {
+      appSettings.scheduleTimes = (appSettings.scheduleTimes || []).filter(t => t !== time);
+      renderScheduleTimes();
+    }
+
+    function renderScheduleTimes() {
+      const container = document.getElementById('schedule-times');
+      const times = appSettings.scheduleTimes || [];
+      container.innerHTML = times.map(t =>
+        `<span class="time-chip">${t} <span class="remove" onclick="removeScheduleTime('${t}')">×</span></span>`
+      ).join('');
+    }
+
+    async function refreshPrinters() {
+      try {
+        const printers = await window.api.getPrinters();
+        const select = document.getElementById('printer-select');
+        select.innerHTML = '<option value="">System Default</option>';
+        printers.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.name;
+          opt.textContent = p.displayName + (p.isDefault ? ' (default)' : '');
+          select.appendChild(opt);
+        });
+      } catch (e) {
+        console.error('Failed to get printers:', e);
+      }
+    }
+
+    async function chooseSaveDir() {
+      const dir = await window.api.chooseDirectory();
+      if (dir) {
+        document.getElementById('save-path').value = dir;
+      }
+    }
+
+    async function chooseCsvFile() {
+      const csvFile = await window.api.chooseCsvFile();
+      if (!csvFile) return;
+
+      document.getElementById('csv-path').value = csvFile;
+      document.getElementById('order-source').value = 'csv';
+      updateSourceModeUI();
+      await saveAllSettings();
+    }
+
+    async function importCsvNow() {
+      if (!document.getElementById('csv-path').value.trim()) {
+        const csvFile = await window.api.chooseCsvFile();
+        if (!csvFile) return;
+        document.getElementById('csv-path').value = csvFile;
+      }
+      document.getElementById('order-source').value = 'csv';
+      updateSourceModeUI();
+      await saveAllSettings(false);
+      await pullOrders();
+    }
+
+    // ============================================================
+    // TOAST NOTIFICATIONS
+    // ============================================================
+    function showToast(msg, type = 'info') {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.className = `toast ${type} show`;
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // ============================================================
+    // BOOT
+    // ============================================================
+    init();
+  </script>
+</body>
+</html>
