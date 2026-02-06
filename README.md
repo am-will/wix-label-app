@@ -66,7 +66,7 @@ Build output is written to the `dist/` folder.
 2. Choose **Order Source**:
    `Wix API`: enter **Wix API Key** and **Wix Site ID**  
    `CSV Import`: choose your exported `Orders.csv`
-3. Set the time range (default: 24 hours)
+3. Set the pull range in days (default: 7 days)
 4. Click **Save Connection**
 
 ### Configure Pack Items (Optional)
@@ -80,7 +80,7 @@ Build output is written to the `dist/` folder.
 
 1. Go to the **Schedule** tab
 2. Toggle **Enable auto-pull** on
-3. Add times (e.g., 06:00, 14:00)
+3. Add day + time entries (e.g., Monday 06:00)
 4. Optionally toggle **Auto-print on pull** to send labels straight to the printer
 5. Click **Save Schedule**
 
@@ -118,7 +118,7 @@ wix-label-app/
 Go to Settings > Connection and enter your credentials.
 
 **No orders found**
-Increase the pull range (hours) or check that there are recent orders in your Wix dashboard.
+Increase the pull range (days) or check that there are recent orders in your Wix dashboard.
 
 **Labels show wrong order type**
 Go to Settings > Packs and update the detection keywords to match your actual Wix product names.

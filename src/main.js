@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -12,6 +12,7 @@ if (process.platform === 'linux') {
 // SETTINGS PERSISTENCE
 // ============================================================
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DEFAULT_SETTINGS = {
   orderSourceMode: 'wix',
   csvPath: '',
@@ -19,11 +20,12 @@ const DEFAULT_SETTINGS = {
   wixSiteId: '',
   savePath: app.getPath('documents'),
   autoSchedule: false,
-  scheduleTimes: ['06:00'],
+  scheduleEntries: [{ day: 'Monday', time: '06:00' }],
   autoPrint: false,
   // Order type detection keywords
   weightLossKeywords: ['weight loss', 'wl pack', 'weightloss'],
   weeklyPackKeywords: ['weekly pack', 'weekly meal'],
+  backOnTrackKeywords: ['back on track', 'back on track box', 'back on track bundle'],
   // Predefined pack items
   weightLossItems: [
     'Breakfast Protein Shake',
@@ -43,15 +45,40 @@ const DEFAULT_SETTINGS = {
     'Weekend Brunch',
     'Snack Assortment'
   ],
-  // Time range for pulling orders (hours)
-  pullRangeHours: 24
+  backOnTrackItems: [
+    'Back On Track Bundle',
+    'Snackle Box'
+  ],
+  // Time range for pulling orders (days)
+  pullRangeDays: 7
 };
 
 function loadSettings() {
   try {
     if (fs.existsSync(settingsPath)) {
       const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-      return { ...DEFAULT_SETTINGS, ...parsed };
+      const merged = { ...DEFAULT_SETTINGS, ...parsed };
+
+      // Backward compatibility: convert old hours-based range.
+      if (!Number.isFinite(Number(merged.pullRangeDays)) || Number(merged.pullRangeDays) <= 0) {
+        const oldHours = Number(parsed.pullRangeHours);
+        if (Number.isFinite(oldHours) && oldHours > 0) {
+          merged.pullRangeDays = Math.max(1, Math.ceil(oldHours / 24));
+        }
+      }
+
+      // Backward compatibility: convert old scheduleTimes array to weekday-aware entries.
+      if (
+        (!Array.isArray(parsed.scheduleEntries) || !parsed.scheduleEntries.length) &&
+        Array.isArray(parsed.scheduleTimes) &&
+        parsed.scheduleTimes.length
+      ) {
+        merged.scheduleEntries = parsed.scheduleTimes
+          .filter(Boolean)
+          .map((time) => ({ day: 'Monday', time: String(time) }));
+      }
+
+      return merged;
     }
   } catch (e) {
     console.error('Failed to load settings:', e);
@@ -108,10 +135,10 @@ app.on('window-all-closed', () => {
 // ============================================================
 // WIX API
 // ============================================================
-function fetchWixOrders(apiKey, siteId, rangeHours) {
+function fetchWixOrders(apiKey, siteId, rangeDays) {
   return new Promise(async (resolve, reject) => {
     try {
-      const since = new Date(Date.now() - rangeHours * 60 * 60 * 1000).toISOString();
+      const since = new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000).toISOString();
       const allOrders = [];
       let nextCursor = null;
 
@@ -250,12 +277,16 @@ function inferOrderTypeFromText(text) {
   const haystack = String(text || '').toLowerCase();
   const wlKeywords = settings.weightLossKeywords || ['weight loss'];
   const wpKeywords = settings.weeklyPackKeywords || ['weekly pack'];
+  const botKeywords = settings.backOnTrackKeywords || ['back on track'];
 
   if (wlKeywords.some((kw) => haystack.includes(String(kw || '').toLowerCase()))) {
     return 'WEIGHT_LOSS_PACK';
   }
   if (wpKeywords.some((kw) => haystack.includes(String(kw || '').toLowerCase()))) {
     return 'WEEKLY_PACK';
+  }
+  if (botKeywords.some((kw) => haystack.includes(String(kw || '').toLowerCase()))) {
+    return 'BACK_ON_TRACK_PACK';
   }
   return 'CUSTOM';
 }
@@ -314,7 +345,7 @@ function extractCsvItems(record, fallbackQty) {
   }];
 }
 
-function parseCsvOrders(csvPath, rangeHours) {
+function parseCsvOrders(csvPath, rangeDays) {
   if (!csvPath) {
     throw new Error('Please choose a CSV file in Settings > Connection.');
   }
@@ -328,7 +359,7 @@ function parseCsvOrders(csvPath, rangeHours) {
 
   const headers = rows[0].map(cleanCsvValue);
   const dataRows = rows.slice(1).filter((r) => r.some((c) => String(c || '').trim().length > 0));
-  const since = Date.now() - rangeHours * 60 * 60 * 1000;
+  const since = Date.now() - rangeDays * 24 * 60 * 60 * 1000;
 
   const mapped = dataRows.map((cols, idx) => {
     const record = {};
@@ -370,6 +401,8 @@ function parseCsvOrders(csvPath, rangeHours) {
       items = (settings.weightLossItems || []).map((name) => ({ name, option: '', qty: 1 }));
     } else if (orderType === 'WEEKLY_PACK') {
       items = (settings.weeklyPackItems || []).map((name) => ({ name, option: '', qty: 1 }));
+    } else if (orderType === 'BACK_ON_TRACK_PACK') {
+      items = (settings.backOnTrackItems || []).map((name) => ({ name, option: '', qty: 1 }));
     } else {
       items = extractCsvItems(record, totalItemCount);
     }
@@ -454,11 +487,14 @@ function parseOrders(rawOrders) {
     let orderType = 'CUSTOM';
     const wlKeywords = settings.weightLossKeywords || ['weight loss'];
     const wpKeywords = settings.weeklyPackKeywords || ['weekly pack'];
+    const botKeywords = settings.backOnTrackKeywords || ['back on track'];
 
     if (wlKeywords.some(kw => allItemsStr.includes(kw.toLowerCase()))) {
       orderType = 'WEIGHT_LOSS_PACK';
     } else if (wpKeywords.some(kw => allItemsStr.includes(kw.toLowerCase()))) {
       orderType = 'WEEKLY_PACK';
+    } else if (botKeywords.some(kw => allItemsStr.includes(kw.toLowerCase()))) {
+      orderType = 'BACK_ON_TRACK_PACK';
     }
 
     // Items
@@ -467,6 +503,8 @@ function parseOrders(rawOrders) {
       items = (settings.weightLossItems || []).map(name => ({ name, option: '', qty: 1 }));
     } else if (orderType === 'WEEKLY_PACK') {
       items = (settings.weeklyPackItems || []).map(name => ({ name, option: '', qty: 1 }));
+    } else if (orderType === 'BACK_ON_TRACK_PACK') {
+      items = (settings.backOnTrackItems || []).map(name => ({ name, option: '', qty: 1 }));
     } else {
       items = lineItems.map(item => {
         const name = item.name || item.productName?.translated || item.productName?.original || 'Unknown Item';
@@ -542,16 +580,22 @@ function setupSchedule() {
   scheduleTimers.forEach(t => clearInterval(t));
   scheduleTimers = [];
 
-  if (!settings.autoSchedule || !settings.scheduleTimes?.length) return;
+  if (!settings.autoSchedule || !settings.scheduleEntries?.length) return;
 
   // Check every 30 seconds if we've hit a scheduled time
   const checker = setInterval(() => {
     const now = new Date();
+    const currentDay = WEEKDAY_NAMES[now.getDay()];
     const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const currentSeconds = now.getSeconds();
 
     // Only trigger within the first 30 seconds of the minute to avoid double-fires
-    if (currentSeconds < 30 && settings.scheduleTimes.includes(currentTime)) {
+    const hasMatch = (settings.scheduleEntries || []).some((entry) => {
+      if (!entry || !entry.day || !entry.time) return false;
+      return entry.day === currentDay && entry.time === currentTime;
+    });
+
+    if (currentSeconds < 30 && hasMatch) {
       console.log(`Scheduled pull triggered at ${currentTime}`);
       if (mainWindow) {
         mainWindow.webContents.send('scheduled-pull');
@@ -569,13 +613,13 @@ function setupSchedule() {
 // Pull orders
 ipcMain.handle('pull-orders', async () => {
   if (settings.orderSourceMode === 'csv') {
-    return parseCsvOrders(settings.csvPath, settings.pullRangeHours);
+    return parseCsvOrders(settings.csvPath, settings.pullRangeDays);
   }
 
   if (!settings.wixApiKey || !settings.wixSiteId) {
     throw new Error('Please configure your Wix API Key and Site ID in Settings, or switch source mode to CSV.');
   }
-  const raw = await fetchWixOrders(settings.wixApiKey, settings.wixSiteId, settings.pullRangeHours);
+  const raw = await fetchWixOrders(settings.wixApiKey, settings.wixSiteId, settings.pullRangeDays);
   return parseOrders(raw);
 });
 
@@ -616,14 +660,10 @@ ipcMain.handle('print-labels', async (event, { html, printerName }) => {
 
   return new Promise((resolve, reject) => {
     const printOptions = {
-      silent: true,
+      silent: false,
       printBackground: true,
       margins: { marginType: 'custom', top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 }
     };
-
-    if (printerName) {
-      printOptions.deviceName = printerName;
-    }
 
     printWindow.webContents.print(printOptions, (success, failureReason) => {
       printWindow.close();
@@ -725,4 +765,10 @@ ipcMain.handle('get-logo-data-url', async () => {
     return `data:image/avif;base64,${data.toString('base64')}`;
   }
   return null;
+});
+
+ipcMain.handle('open-path', async (event, targetPath) => {
+  if (!targetPath) return false;
+  const result = await shell.openPath(targetPath);
+  return result === '';
 });

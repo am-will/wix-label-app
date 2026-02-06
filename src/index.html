@@ -87,7 +87,8 @@
       overflow: hidden;
     }
     .sidebar {
-      width: 320px;
+      width: 380px;
+      min-width: 360px;
       background: #ffffff;
       border-right: 1px solid #e5e7eb;
       padding: 20px;
@@ -266,12 +267,14 @@
 
     /* ---- TABS (for settings sections) ---- */
     .tab-row {
-      display: flex;
-      gap: 4px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
       margin-bottom: 12px;
     }
     .tab-btn {
-      padding: 6px 12px;
+      width: 100%;
+      padding: 6px 8px;
       border: none;
       background: transparent;
       font-size: 12px;
@@ -279,6 +282,9 @@
       color: #9ca3af;
       cursor: pointer;
       border-radius: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .tab-btn.active { background: #fef2f2; color: #dc2626; }
     .tab-content { display: none; }
@@ -303,6 +309,29 @@
     .toast.success { background: #059669; }
     .toast.error { background: #dc2626; }
     .toast.info { background: #2563eb; }
+    .toast-content {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      max-width: 620px;
+    }
+    .toast-text {
+      overflow-wrap: anywhere;
+    }
+    .toast-action {
+      border: 1px solid rgba(255,255,255,0.65);
+      background: rgba(255,255,255,0.18);
+      color: #fff;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .toast-action:hover {
+      background: rgba(255,255,255,0.3);
+    }
 
     .order-hit {
       box-shadow: 0 0 0 3px rgba(37,99,235,0.45), 0 6px 18px rgba(37,99,235,0.25);
@@ -384,8 +413,8 @@
               <button class="btn btn-outline" style="width:100%;margin-top:0;" onclick="importCsvNow()">Import CSV Now</button>
             </div>
             <div class="form-group">
-              <label>Pull orders from last (hours)</label>
-              <input type="number" id="pull-range" value="24" min="1" max="168">
+              <label>Pull orders from last (days)</label>
+              <input type="number" id="pull-range" value="7" min="1" max="365">
             </div>
             <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="saveAllSettings()">Save Connection</button>
           </div>
@@ -403,8 +432,17 @@
               <div class="toggle" id="toggle-autoprint" onclick="toggleAutoPrint()"></div>
             </div>
             <div class="form-group" style="margin-top:12px;">
-              <label>Scheduled Times</label>
+              <label>Scheduled Day + Time</label>
               <div style="display:flex;gap:6px;">
+                <select id="new-day" style="flex:1;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
+                  <option value="Monday">Monday</option>
+                  <option value="Tuesday">Tuesday</option>
+                  <option value="Wednesday">Wednesday</option>
+                  <option value="Thursday">Thursday</option>
+                  <option value="Friday">Friday</option>
+                  <option value="Saturday">Saturday</option>
+                  <option value="Sunday">Sunday</option>
+                </select>
                 <input type="time" id="new-time" style="flex:1;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;">
                 <button class="btn btn-secondary" onclick="addScheduleTime()">Add</button>
               </div>
@@ -454,6 +492,14 @@
               <label>Weekly Pack Items (one per line)</label>
               <textarea id="wp-items" rows="5"></textarea>
             </div>
+            <div class="form-group">
+              <label>Back On Track Box Keywords (comma-separated)</label>
+              <input type="text" id="bot-keywords" placeholder="back on track, back on track box">
+            </div>
+            <div class="form-group">
+              <label>Back On Track Box Items (one per line)</label>
+              <textarea id="bot-items" rows="5"></textarea>
+            </div>
             <button class="btn btn-secondary" style="width:100%;margin-top:8px;" onclick="saveAllSettings()">Save Pack Config</button>
           </div>
         </div>
@@ -489,6 +535,8 @@
     let currentHtml = '';
     let appSettings = {};
     let logoDataUrl = '';
+    let lastSearchQuery = '';
+    let lastSearchIndex = -1;
 
     // ============================================================
     // INIT
@@ -514,7 +562,7 @@
       document.getElementById('wix-api-key').value = appSettings.wixApiKey || '';
       document.getElementById('wix-site-id').value = appSettings.wixSiteId || '';
       document.getElementById('csv-path').value = appSettings.csvPath || '';
-      document.getElementById('pull-range').value = appSettings.pullRangeHours || 24;
+      document.getElementById('pull-range').value = appSettings.pullRangeDays || 7;
       document.getElementById('save-path').value = appSettings.savePath || '';
 
       // Schedule
@@ -529,6 +577,8 @@
       document.getElementById('wl-items').value = (appSettings.weightLossItems || []).join('\n');
       document.getElementById('wp-keywords').value = (appSettings.weeklyPackKeywords || []).join(', ');
       document.getElementById('wp-items').value = (appSettings.weeklyPackItems || []).join('\n');
+      document.getElementById('bot-keywords').value = (appSettings.backOnTrackKeywords || []).join(', ');
+      document.getElementById('bot-items').value = (appSettings.backOnTrackItems || []).join('\n');
 
       updateSourceModeUI();
       refreshConnectionStatus();
@@ -551,7 +601,7 @@
           document.getElementById('preview-area').innerHTML = `
             <div class="empty-state">
               <div class="icon">✅</div>
-              <p>No orders found from ${source} in the last ${appSettings.pullRangeHours || 24} hours.</p>
+              <p>No orders found from ${source} in the last ${appSettings.pullRangeDays || 7} days.</p>
             </div>`;
           document.getElementById('stats-section').style.display = 'none';
           showToast('No new orders found', 'info');
@@ -594,14 +644,16 @@
     }
 
     const CONFIG = {
-      DELIVERY: { color: '#dc2626', emoji: '🚚', label: 'DELIVERY' },
-      PICKUP:   { color: '#059669', emoji: '📦', label: 'PICKUP' },
-      WEIGHT_LOSS_PACK: { color: '#dc2626', emoji: '❤️', label: 'Weight Loss Pack', bg: '#fef2f2', border: '#fecaca' },
-      WEEKLY_PACK:      { color: '#7c3aed', emoji: '📅', label: 'Weekly Pack',      bg: '#f5f3ff', border: '#ddd6fe' },
-      CUSTOM:           { color: '#d97706', emoji: '⭐', label: 'Custom Order',     bg: '#fffbeb', border: '#fde68a' }
+      DELIVERY: { color: '#dc2626', label: 'DELIVERY' },
+      PICKUP:   { color: '#059669', label: 'PICKUP' },
+      WEIGHT_LOSS_PACK: { color: '#dc2626', label: 'Weight Loss Pack', bg: '#fef2f2', border: '#fecaca' },
+      WEEKLY_PACK:      { color: '#7c3aed', label: 'Weekly Pack',      bg: '#f5f3ff', border: '#ddd6fe' },
+      BACK_ON_TRACK_PACK:{ color: '#2563eb', label: 'Back On Track Box', bg: '#eff6ff', border: '#bfdbfe' },
+      CUSTOM:           { color: '#d97706', label: 'Custom Order',     bg: '#fffbeb', border: '#fde68a' }
     };
 
-    function generateLabelHtml(order) {
+    function generateLabelHtml(order, options = {}) {
+      const forPrint = !!options.forPrint;
       const dm = CONFIG[order.deliveryMethod];
       const ot = CONFIG[order.orderType];
       const isDelivery = order.deliveryMethod === 'DELIVERY';
@@ -634,10 +686,7 @@
             ${note}
           </div>`;
       } else {
-        addressBlock = `
-          <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:10px 16px;margin-bottom:18px;">
-            <div style="font-size:14px;color:#065f46;font-weight:600;">Customer will pick up order</div>
-          </div>`;
+        addressBlock = '';
       }
 
       const locationHtml = isDelivery && order.location
@@ -647,17 +696,20 @@
         ? `<img src="${logoDataUrl}" alt="Fuel Up logo" style="max-height:56px;max-width:180px;object-fit:contain;">`
         : '';
       const labelId = getOrderLabelId(order);
+      const outerStyle = forPrint
+        ? `width:calc(100% - 2px);border:3px solid ${dm.color};border-radius:10px;padding:0;margin:0 0 0.16in 0;font-family:'Segoe UI',Arial,sans-serif;background:#ffffff;overflow:hidden;break-inside:avoid;page-break-inside:avoid;-webkit-column-break-inside:avoid;display:block;vertical-align:top;box-sizing:border-box;zoom:0.8;`
+        : `width:480px;border:3px solid ${dm.color};border-radius:10px;padding:0;margin:24px auto;font-family:'Segoe UI',Arial,sans-serif;background:#ffffff;page-break-inside:avoid;overflow:hidden;zoom:0.8;`;
 
       return `
-        <div id="${labelId}" style="width:480px;border:3px solid ${dm.color};border-radius:10px;padding:0;margin:24px auto;font-family:'Segoe UI',Arial,sans-serif;background:#ffffff;page-break-inside:avoid;overflow:hidden;">
+        <div id="${labelId}" class="label-card" style="${outerStyle}">
           <div style="background:${dm.color};padding:6px 20px;display:flex;justify-content:space-between;align-items:center;">
-            <span style="color:#ffffff;font-size:14px;font-weight:700;letter-spacing:1px;">${dm.emoji} ${dm.label}</span>
+            <span style="color:#ffffff;font-size:14px;font-weight:700;letter-spacing:1px;">${dm.label}</span>
             ${locationHtml}
           </div>
           <div style="padding:20px 24px 24px;">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px;padding-bottom:12px;border-bottom:2px solid #e5e7eb;">
               <div style="min-width:0;flex:1;">
-                <div style="font-size:28px;font-weight:800;color:#dc2626;text-transform:uppercase;line-height:1.1;margin-bottom:2px;">${escapeHtml(order.customerName)}</div>
+                <div style="font-size:34px;font-weight:800;color:#dc2626;text-transform:uppercase;line-height:1.05;margin-bottom:2px;">${escapeHtml(order.customerName)}</div>
                 <div style="font-size:18px;font-weight:700;color:#111827;">Order #${escapeHtml(order.orderNumber)} (${order.totalItemCount} items)</div>
                 <div style="font-size:12px;color:#6b7280;margin-top:4px;">${formatDate(order.createdDate)}</div>
               </div>
@@ -669,8 +721,8 @@
               ${escapeHtml(order.customerName)}${order.customerEmail ? ' | ' + escapeHtml(order.customerEmail) : ''}${order.customerPhone ? ' | ' + escapeHtml(order.customerPhone) : ''}
             </div>
             ${addressBlock}
-            <div style="display:inline-flex;align-items:center;gap:6px;padding:5px 14px;border-radius:6px;background:${ot.bg};border:1px solid ${ot.border};margin-bottom:16px;">
-              <span style="font-size:13px;font-weight:700;color:${ot.color};">${ot.emoji} ${ot.label}</span>
+            <div style="display:block;width:100%;box-sizing:border-box;padding:5px 14px;border-radius:6px;background:${ot.bg};border:1px solid ${ot.border};margin-bottom:16px;">
+              <span style="font-size:13px;font-weight:700;color:${ot.color};">${ot.label}</span>
             </div>
             <div style="margin-bottom:4px;">
               <table style="width:100%;border-collapse:collapse;font-size:13px;">${itemRows}</table>
@@ -687,23 +739,29 @@
     }
 
     function buildFullDocument(orders) {
-      const now = new Date();
-      const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-      const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-      const labels = orders.map(o => generateLabelHtml(o)).join('');
+      const labels = orders.map(o => generateLabelHtml(o, { forPrint: true })).join('');
 
       return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
 <style>
-  @page { size: letter; margin: 0.5in; }
-  body { margin:0; padding:20px; background:#fff; font-family:'Segoe UI',Arial,sans-serif; }
-  @media print { body { padding:0; } }
+  @page { size: letter portrait; margin: 0.35in; }
+  body { margin:0; padding:0; background:#fff; font-family:'Segoe UI',Arial,sans-serif; }
+  .labels-columns {
+    column-count: 2;
+    column-gap: 0.16in;
+    column-fill: auto;
+    padding-right: 0.03in;
+  }
+  .label-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    -webkit-column-break-inside: avoid;
+    width: 100%;
+    box-sizing: border-box;
+    margin: 0 0 0.16in 0;
+  }
 </style></head><body>
-  <div style="text-align:center;margin-bottom:30px;padding-bottom:16px;border-bottom:2px solid #d1d5db;">
-    <h1 style="font-size:22px;color:#111827;margin:0;">Order Labels</h1>
-    <p style="font-size:13px;color:#6b7280;margin:4px 0 0;">Generated: ${dateStr}, ${timeStr} | ${orders.length} order${orders.length !== 1 ? 's' : ''}</p>
-  </div>
-  ${labels}
+  <div class="labels-columns">${labels}</div>
 </body></html>`;
     }
 
@@ -734,6 +792,34 @@
       document.querySelectorAll('.order-hit').forEach(el => el.classList.remove('order-hit'));
     }
 
+    function getOrderSearchText(order) {
+      const packLabelByType = {
+        WEIGHT_LOSS_PACK: 'weight loss pack weight loss',
+        WEEKLY_PACK: 'weekly pack weekly',
+        BACK_ON_TRACK_PACK: 'back on track box back on track',
+        CUSTOM: 'custom order',
+        DELIVERY: 'delivery',
+        PICKUP: 'pickup'
+      };
+
+      const itemText = (order.items || [])
+        .map(i => `${i.name || ''} ${i.option || ''}`)
+        .join(' ');
+
+      return [
+        order.orderNumber,
+        order.customerName,
+        order.customerEmail,
+        order.customerPhone,
+        order.location,
+        order.deliveryMethod,
+        order.orderType,
+        packLabelByType[order.orderType] || '',
+        order.formattedAddress,
+        itemText
+      ].join(' ').toLowerCase();
+    }
+
     function searchOrders() {
       if (!currentOrders.length) {
         showToast('Pull orders first, then search.', 'info');
@@ -746,26 +832,23 @@
         return;
       }
 
-      const foundOrder = currentOrders.find(order => {
-        const haystack = [
-          order.orderNumber,
-          order.customerName,
-          order.customerEmail,
-          order.customerPhone,
-          order.location,
-          order.deliveryMethod,
-          order.orderType,
-          order.formattedAddress
-        ].join(' ').toLowerCase();
-        return haystack.includes(query);
-      });
-
-      if (!foundOrder) {
+      const matches = currentOrders.filter(order => getOrderSearchText(order).includes(query));
+      if (!matches.length) {
         clearOrderHighlights();
+        lastSearchQuery = '';
+        lastSearchIndex = -1;
         showToast('No matching order found in current batch.', 'error');
         return;
       }
 
+      if (lastSearchQuery !== query) {
+        lastSearchQuery = query;
+        lastSearchIndex = 0;
+      } else {
+        lastSearchIndex = (lastSearchIndex + 1) % matches.length;
+      }
+
+      const foundOrder = matches[lastSearchIndex];
       const targetId = getOrderLabelId(foundOrder);
       const targetEl = document.getElementById(targetId);
       if (!targetEl) {
@@ -776,7 +859,7 @@
       clearOrderHighlights();
       targetEl.classList.add('order-hit');
       targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      showToast(`Jumped to order #${foundOrder.orderNumber}`, 'success');
+      showToast(`Match ${lastSearchIndex + 1}/${matches.length}: order #${foundOrder.orderNumber}`, 'success');
     }
 
     // ============================================================
@@ -790,7 +873,7 @@
       try {
         const printerName = document.getElementById('printer-select').value || undefined;
         await window.api.printLabels({ html: currentHtml, printerName });
-        showToast('Labels sent to printer!', 'success');
+        showToast('Print dialog opened.', 'success');
       } catch (err) {
         showToast('Print failed: ' + err.message, 'error');
       }
@@ -805,7 +888,18 @@
         const now = new Date();
         const name = `order-labels-${now.toISOString().split('T')[0]}-${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}.pdf`;
         const result = await window.api.savePdf({ html: currentHtml, suggestedName: name });
-        if (result) showToast(`Saved to ${result}`, 'success');
+        if (result) {
+          showToast(`Saved: ${result}`, 'success', {
+            actionLabel: 'Open',
+            onAction: async () => {
+              const opened = await window.api.openPath(result);
+              if (!opened) {
+                showToast('Could not open the saved file path.', 'error');
+              }
+            },
+            duration: 9000
+          });
+        }
       } catch (err) {
         showToast('Save failed: ' + err.message, 'error');
       }
@@ -847,15 +941,17 @@
         csvPath: document.getElementById('csv-path').value.trim(),
         wixApiKey: document.getElementById('wix-api-key').value.trim(),
         wixSiteId: document.getElementById('wix-site-id').value.trim(),
-        pullRangeHours: parseInt(document.getElementById('pull-range').value) || 24,
+        pullRangeDays: parseInt(document.getElementById('pull-range').value) || 7,
         savePath: document.getElementById('save-path').value,
         autoSchedule: document.getElementById('toggle-schedule').classList.contains('active'),
         autoPrint: document.getElementById('toggle-autoprint').classList.contains('active'),
-        scheduleTimes: appSettings.scheduleTimes || [],
+        scheduleEntries: appSettings.scheduleEntries || [],
         weightLossKeywords: document.getElementById('wl-keywords').value.split(',').map(s => s.trim()).filter(Boolean),
         weeklyPackKeywords: document.getElementById('wp-keywords').value.split(',').map(s => s.trim()).filter(Boolean),
+        backOnTrackKeywords: document.getElementById('bot-keywords').value.split(',').map(s => s.trim()).filter(Boolean),
         weightLossItems: document.getElementById('wl-items').value.split('\n').map(s => s.trim()).filter(Boolean),
-        weeklyPackItems: document.getElementById('wp-items').value.split('\n').map(s => s.trim()).filter(Boolean)
+        weeklyPackItems: document.getElementById('wp-items').value.split('\n').map(s => s.trim()).filter(Boolean),
+        backOnTrackItems: document.getElementById('bot-items').value.split('\n').map(s => s.trim()).filter(Boolean)
       };
 
       appSettings = await window.api.saveSettings(newSettings);
@@ -879,27 +975,32 @@
 
     function addScheduleTime() {
       const input = document.getElementById('new-time');
+      const day = document.getElementById('new-day').value;
       const time = input.value;
       if (!time) return;
-      if (!appSettings.scheduleTimes) appSettings.scheduleTimes = [];
-      if (!appSettings.scheduleTimes.includes(time)) {
-        appSettings.scheduleTimes.push(time);
-        appSettings.scheduleTimes.sort();
+      if (!appSettings.scheduleEntries) appSettings.scheduleEntries = [];
+      const duplicate = appSettings.scheduleEntries.some((entry) => entry.day === day && entry.time === time);
+      if (!duplicate) {
+        appSettings.scheduleEntries.push({ day, time });
+        appSettings.scheduleEntries.sort((a, b) => {
+          if (a.day === b.day) return a.time.localeCompare(b.time);
+          return a.day.localeCompare(b.day);
+        });
         renderScheduleTimes();
       }
       input.value = '';
     }
 
-    function removeScheduleTime(time) {
-      appSettings.scheduleTimes = (appSettings.scheduleTimes || []).filter(t => t !== time);
+    function removeScheduleTime(index) {
+      appSettings.scheduleEntries = (appSettings.scheduleEntries || []).filter((_, i) => i !== index);
       renderScheduleTimes();
     }
 
     function renderScheduleTimes() {
       const container = document.getElementById('schedule-times');
-      const times = appSettings.scheduleTimes || [];
-      container.innerHTML = times.map(t =>
-        `<span class="time-chip">${t} <span class="remove" onclick="removeScheduleTime('${t}')">×</span></span>`
+      const entries = appSettings.scheduleEntries || [];
+      container.innerHTML = entries.map((entry, idx) =>
+        `<span class="time-chip">${entry.day} ${entry.time} <span class="remove" onclick="removeScheduleTime(${idx})">×</span></span>`
       ).join('');
     }
 
@@ -951,11 +1052,24 @@
     // ============================================================
     // TOAST NOTIFICATIONS
     // ============================================================
-    function showToast(msg, type = 'info') {
+    let toastTimer = null;
+    function showToast(msg, type = 'info', options = {}) {
       const toast = document.getElementById('toast');
-      toast.textContent = msg;
+      const actionLabel = options.actionLabel || '';
+      const toastText = escapeHtml(msg);
+      toast.innerHTML = actionLabel
+        ? `<div class="toast-content"><span class="toast-text">${toastText}</span><button class="toast-action" id="toast-action">${escapeHtml(actionLabel)}</button></div>`
+        : `<div class="toast-content"><span class="toast-text">${toastText}</span></div>`;
       toast.className = `toast ${type} show`;
-      setTimeout(() => toast.classList.remove('show'), 3000);
+      if (actionLabel && typeof options.onAction === 'function') {
+        const actionBtn = document.getElementById('toast-action');
+        if (actionBtn) {
+          actionBtn.onclick = options.onAction;
+        }
+      }
+      if (toastTimer) clearTimeout(toastTimer);
+      const duration = Number.isFinite(options.duration) ? options.duration : 3500;
+      toastTimer = setTimeout(() => toast.classList.remove('show'), duration);
     }
 
     // ============================================================
