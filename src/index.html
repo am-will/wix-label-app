@@ -36,7 +36,22 @@
     .topbar-actions {
       display: flex;
       gap: 8px;
+      align-items: center;
       -webkit-app-region: no-drag;
+    }
+    .search-input {
+      width: 240px;
+      padding: 8px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 13px;
+      background: #fff;
+      color: #111827;
+    }
+    .search-input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37,99,235,0.12);
     }
 
     /* ---- BUTTONS ---- */
@@ -288,6 +303,11 @@
     .toast.success { background: #059669; }
     .toast.error { background: #dc2626; }
     .toast.info { background: #2563eb; }
+
+    .order-hit {
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.45), 0 6px 18px rgba(37,99,235,0.25);
+      transition: box-shadow 0.2s;
+    }
   </style>
 </head>
 <body>
@@ -295,6 +315,14 @@
   <div class="topbar">
     <h1>🏷️ Wix Label Generator</h1>
     <div class="topbar-actions">
+      <input
+        class="search-input"
+        id="order-search"
+        type="text"
+        placeholder="Find order #, name, email..."
+        onkeydown="if(event.key==='Enter') searchOrders();"
+      >
+      <button class="btn btn-outline" onclick="searchOrders()">Find</button>
       <button class="btn btn-primary btn-lg" id="btn-pull" onclick="pullOrders()">
         Pull Orders
       </button>
@@ -560,6 +588,11 @@
       } catch { return iso; }
     }
 
+    function getOrderLabelId(order) {
+      const seed = String(order.orderId || order.orderNumber || order.customerName || 'order');
+      return 'order-label-' + seed.replace(/[^a-zA-Z0-9_-]/g, '_');
+    }
+
     const CONFIG = {
       DELIVERY: { color: '#dc2626', emoji: '🚚', label: 'DELIVERY' },
       PICKUP:   { color: '#059669', emoji: '📦', label: 'PICKUP' },
@@ -613,9 +646,10 @@
       const logoHtml = logoDataUrl
         ? `<img src="${logoDataUrl}" alt="Fuel Up logo" style="max-height:56px;max-width:180px;object-fit:contain;">`
         : '';
+      const labelId = getOrderLabelId(order);
 
       return `
-        <div style="width:480px;border:3px solid ${dm.color};border-radius:10px;padding:0;margin:24px auto;font-family:'Segoe UI',Arial,sans-serif;background:#ffffff;page-break-inside:avoid;overflow:hidden;">
+        <div id="${labelId}" style="width:480px;border:3px solid ${dm.color};border-radius:10px;padding:0;margin:24px auto;font-family:'Segoe UI',Arial,sans-serif;background:#ffffff;page-break-inside:avoid;overflow:hidden;">
           <div style="background:${dm.color};padding:6px 20px;display:flex;justify-content:space-between;align-items:center;">
             <span style="color:#ffffff;font-size:14px;font-weight:700;letter-spacing:1px;">${dm.emoji} ${dm.label}</span>
             ${locationHtml}
@@ -694,6 +728,55 @@
       // Render preview (individual cards, not the full print document)
       const previewHtml = currentOrders.map(o => generateLabelHtml(o)).join('');
       document.getElementById('preview-area').innerHTML = previewHtml;
+    }
+
+    function clearOrderHighlights() {
+      document.querySelectorAll('.order-hit').forEach(el => el.classList.remove('order-hit'));
+    }
+
+    function searchOrders() {
+      if (!currentOrders.length) {
+        showToast('Pull orders first, then search.', 'info');
+        return;
+      }
+
+      const query = (document.getElementById('order-search').value || '').trim().toLowerCase();
+      if (!query) {
+        showToast('Enter an order number or customer detail to search.', 'info');
+        return;
+      }
+
+      const foundOrder = currentOrders.find(order => {
+        const haystack = [
+          order.orderNumber,
+          order.customerName,
+          order.customerEmail,
+          order.customerPhone,
+          order.location,
+          order.deliveryMethod,
+          order.orderType,
+          order.formattedAddress
+        ].join(' ').toLowerCase();
+        return haystack.includes(query);
+      });
+
+      if (!foundOrder) {
+        clearOrderHighlights();
+        showToast('No matching order found in current batch.', 'error');
+        return;
+      }
+
+      const targetId = getOrderLabelId(foundOrder);
+      const targetEl = document.getElementById(targetId);
+      if (!targetEl) {
+        showToast('Match found, but label is not visible yet.', 'error');
+        return;
+      }
+
+      clearOrderHighlights();
+      targetEl.classList.add('order-hit');
+      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      showToast(`Jumped to order #${foundOrder.orderNumber}`, 'success');
     }
 
     // ============================================================
