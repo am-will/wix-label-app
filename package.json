@@ -7,7 +7,7 @@
     "start": "node scripts/start-electron.js",
     "build": "electron-builder --linux",
     "build:linux": "electron-builder --linux",
-    "build:win": "electron-builder --win",
+    "build:win": "set CSC_IDENTITY_AUTO_DISCOVERY=false&& electron-builder --win",
     "pack": "electron-builder --dir"
   },
   "devDependencies": {
@@ -19,7 +19,9 @@
     "productName": "Wix Label Generator",
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "signAndEditExecutable": false,
+      "verifyUpdateCodeSignature": false
     },
     "linux": {
       "target": [
