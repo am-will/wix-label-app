@@ -1,6 +1,6 @@
 {
   "name": "wix-label-generator",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Wix Order Label Generator - Pull orders, generate labels, print or save as PDF",
   "main": "src/main.js",
   "scripts": {
