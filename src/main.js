@@ -50,7 +50,9 @@ const DEFAULT_SETTINGS = {
     'Snackle Box'
   ],
   // Time range for pulling orders (days)
-  pullRangeDays: 7
+  pullRangeDays: 7,
+  // Which archive state to pull: active | archived | all
+  orderArchiveFilter: 'active'
 };
 
 function loadSettings() {
@@ -58,6 +60,12 @@ function loadSettings() {
     if (fs.existsSync(settingsPath)) {
       const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
       const merged = { ...DEFAULT_SETTINGS, ...parsed };
+
+      // Backward compatibility: replace old fulfillment filter with archive filter.
+      if (!['active', 'archived', 'all'].includes(String(merged.orderArchiveFilter || '').toLowerCase())) {
+        const legacy = String(parsed.fulfillmentFilter || '').toLowerCase();
+        merged.orderArchiveFilter = legacy ? 'all' : DEFAULT_SETTINGS.orderArchiveFilter;
+      }
 
       // Backward compatibility: convert old hours-based range.
       if (!Number.isFinite(Number(merged.pullRangeDays)) || Number(merged.pullRangeDays) <= 0) {
@@ -107,6 +115,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
+    icon: path.join(__dirname, '..', 'assets', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -135,12 +144,20 @@ app.on('window-all-closed', () => {
 // ============================================================
 // WIX API
 // ============================================================
-function fetchWixOrders(apiKey, siteId, rangeDays) {
+function fetchWixOrders(apiKey, siteId, rangeDays, orderArchiveFilter = 'active') {
   return new Promise(async (resolve, reject) => {
     try {
       const since = new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000).toISOString();
       const allOrders = [];
       let nextCursor = null;
+      const normalizedArchiveFilter = String(orderArchiveFilter || DEFAULT_SETTINGS.orderArchiveFilter).toLowerCase();
+      const archivedValueByFilter = {
+        active: false,
+        archived: true
+      };
+      const archivedValue = Object.prototype.hasOwnProperty.call(archivedValueByFilter, normalizedArchiveFilter)
+        ? archivedValueByFilter[normalizedArchiveFilter]
+        : null;
 
       do {
         const search = {
@@ -153,6 +170,9 @@ function fetchWixOrders(apiKey, siteId, rangeDays) {
         };
         if (nextCursor) {
           search.cursorPaging.next = nextCursor;
+        }
+        if (archivedValue !== null) {
+          search.filter.archived = { $eq: archivedValue };
         }
 
         const body = JSON.stringify({ search });
@@ -619,8 +639,89 @@ ipcMain.handle('pull-orders', async () => {
   if (!settings.wixApiKey || !settings.wixSiteId) {
     throw new Error('Please configure your Wix API Key and Site ID in Settings, or switch source mode to CSV.');
   }
-  const raw = await fetchWixOrders(settings.wixApiKey, settings.wixSiteId, settings.pullRangeDays);
+  const raw = await fetchWixOrders(
+    settings.wixApiKey,
+    settings.wixSiteId,
+    settings.pullRangeDays,
+    settings.orderArchiveFilter
+  );
   return parseOrders(raw);
+});
+
+ipcMain.handle('archive-orders', async (event, orderIds) => {
+  if (!Array.isArray(orderIds) || !orderIds.length) {
+    throw new Error('No orders selected to archive.');
+  }
+  if (settings.orderSourceMode === 'csv') {
+    throw new Error('Archiving is only available for Wix orders.');
+  }
+  if (!settings.wixApiKey || !settings.wixSiteId) {
+    throw new Error('Please configure your Wix API Key and Site ID in Settings.');
+  }
+
+  const sanitizedIds = orderIds
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+
+  if (!sanitizedIds.length) {
+    throw new Error('No valid Wix order IDs selected.');
+  }
+
+  const body = JSON.stringify({
+    orders: sanitizedIds.map((id) => ({
+      order: { id, archived: true }
+    })),
+    returnEntity: false
+  });
+
+  const options = {
+    hostname: 'www.wixapis.com',
+    path: '/ecom/v1/bulk/orders/update',
+    method: 'POST',
+    headers: {
+      Authorization: settings.wixApiKey,
+      'wix-site-id': settings.wixSiteId,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'Content-Length': Buffer.byteLength(body)
+    }
+  };
+
+  const parsed = await new Promise((resolve, reject) => {
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      res.on('end', () => {
+        try {
+          const page = JSON.parse(data || '{}');
+          if (res.statusCode >= 400) {
+            reject(new Error(`Wix archive error ${res.statusCode}: ${JSON.stringify(page)}`));
+            return;
+          }
+          resolve(page);
+        } catch (e) {
+          reject(new Error(`Failed to parse archive response: ${e.message}`));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+
+  const results = Array.isArray(parsed.results) ? parsed.results : [];
+  const successCount = results.filter((r) => r?.errorCode == null && r?.error == null).length || sanitizedIds.length;
+  const failedCount = Math.max(0, sanitizedIds.length - successCount);
+
+  return {
+    requested: sanitizedIds.length,
+    successCount,
+    failedCount,
+    results
+  };
 });
 
 // Get settings
@@ -629,6 +730,10 @@ ipcMain.handle('get-settings', () => settings);
 // Save settings
 ipcMain.handle('save-settings', (event, newSettings) => {
   settings = { ...DEFAULT_SETTINGS, ...settings, ...newSettings };
+  const normalizedArchiveFilter = String(settings.orderArchiveFilter || DEFAULT_SETTINGS.orderArchiveFilter).toLowerCase();
+  settings.orderArchiveFilter = ['active', 'archived', 'all'].includes(normalizedArchiveFilter)
+    ? normalizedArchiveFilter
+    : DEFAULT_SETTINGS.orderArchiveFilter;
   saveSettings(settings);
   setupSchedule();
   return settings;

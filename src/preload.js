@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   pullOrders: () => ipcRenderer.invoke('pull-orders'),
+  archiveOrders: (orderIds) => ipcRenderer.invoke('archive-orders', orderIds),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   getPrinters: () => ipcRenderer.invoke('get-printers'),

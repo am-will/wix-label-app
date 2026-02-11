@@ -27,7 +27,8 @@
       "target": [
         "AppImage"
       ],
-      "category": "Utility"
+      "category": "Utility",
+      "icon": "assets/icon.png"
     },
     "nsis": {
       "oneClick": true,

@@ -337,6 +337,29 @@
       box-shadow: 0 0 0 3px rgba(37,99,235,0.45), 0 6px 18px rgba(37,99,235,0.25);
       transition: box-shadow 0.2s;
     }
+    .preview-order-wrap {
+      width: 480px;
+      margin: 20px auto;
+    }
+    .label-select-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      padding: 6px 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: #ffffff;
+      font-size: 12px;
+      color: #374151;
+      font-weight: 600;
+    }
+    .label-select-row input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      accent-color: #dc2626;
+    }
   </style>
 </head>
 <body>
@@ -352,7 +375,10 @@
         onkeydown="if(event.key==='Enter') searchOrders();"
       >
       <button class="btn btn-outline" onclick="searchOrders()">Find</button>
-      <button class="btn btn-primary btn-lg" id="btn-pull" onclick="pullOrders()">
+      <button class="btn btn-primary btn-lg" id="btn-archive" onclick="archiveSelectedOrders()" disabled>
+        Archive
+      </button>
+      <button class="btn btn-success btn-lg" id="btn-pull" onclick="pullOrders()">
         Pull Orders
       </button>
     </div>
@@ -366,6 +392,10 @@
       <div id="stats-section" style="display:none;">
         <div class="section-title">Current Batch</div>
         <div class="stats-row" id="stats-row"></div>
+        <div style="display:flex;gap:6px;margin-top:8px;">
+          <button class="btn btn-outline" style="flex:1;" onclick="selectAllOrders()">Select All</button>
+          <button class="btn btn-outline" style="flex:1;" onclick="deselectAllOrders()">Deselect All</button>
+        </div>
         <div style="display:flex;gap:6px;margin-top:12px;">
           <button class="btn btn-primary" style="flex:1;" onclick="printLabels()">🖨️ Print</button>
           <button class="btn btn-secondary" style="flex:1;" onclick="savePdf()">💾 Save PDF</button>
@@ -400,6 +430,14 @@
             <div class="form-group">
               <label>Wix Site ID</label>
               <input type="text" id="wix-site-id" placeholder="Enter your Wix Site ID">
+            </div>
+            <div class="form-group">
+              <label>Order Filter</label>
+              <select id="order-archive-filter">
+                <option value="active">Active</option>
+                <option value="archived">Archived</option>
+                <option value="all">All</option>
+              </select>
             </div>
             </div>
             <div id="csv-connection-fields" style="display:none;">
@@ -537,6 +575,7 @@
     let logoDataUrl = '';
     let lastSearchQuery = '';
     let lastSearchIndex = -1;
+    let selectedOrderIds = new Set();
 
     // ============================================================
     // INIT
@@ -563,6 +602,7 @@
       document.getElementById('wix-site-id').value = appSettings.wixSiteId || '';
       document.getElementById('csv-path').value = appSettings.csvPath || '';
       document.getElementById('pull-range').value = appSettings.pullRangeDays || 7;
+      document.getElementById('order-archive-filter').value = appSettings.orderArchiveFilter || 'active';
       document.getElementById('save-path').value = appSettings.savePath || '';
 
       // Schedule
@@ -589,12 +629,15 @@
     // ============================================================
     async function pullOrders() {
       const btn = document.getElementById('btn-pull');
+      const archiveBtn = document.getElementById('btn-archive');
       btn.disabled = true;
+      archiveBtn.disabled = true;
       btn.innerHTML = '<span class="spinner"></span> Pulling...';
       document.getElementById('status-right').textContent = 'Fetching orders...';
 
       try {
         currentOrders = await window.api.pullOrders();
+        selectedOrderIds = new Set(currentOrders.map((o) => String(o.orderId || '')).filter(Boolean));
 
         if (currentOrders.length === 0) {
           const source = (appSettings.orderSourceMode || 'wix') === 'csv' ? 'CSV file' : 'Wix';
@@ -604,6 +647,7 @@
               <p>No orders found from ${source} in the last ${appSettings.pullRangeDays || 7} days.</p>
             </div>`;
           document.getElementById('stats-section').style.display = 'none';
+          selectedOrderIds = new Set();
           showToast('No new orders found', 'info');
         } else {
           renderLabels();
@@ -619,6 +663,7 @@
 
       btn.disabled = false;
       btn.innerHTML = 'Pull Orders';
+      updateArchiveButtonState();
     }
 
     // ============================================================
@@ -765,6 +810,27 @@
 </body></html>`;
     }
 
+    function generateOrderPreviewHtml(order, index) {
+      const orderId = String(order.orderId || '');
+      const isChecked = selectedOrderIds.has(orderId);
+      const checkboxId = `archive-check-${String(index)}`;
+
+      return `
+        <div class="preview-order-wrap">
+          <label class="label-select-row" for="${checkboxId}">
+            <span>Archive order #${escapeHtml(order.orderNumber || '')}</span>
+            <input
+              id="${checkboxId}"
+              type="checkbox"
+              ${isChecked ? 'checked' : ''}
+              onchange="toggleOrderSelectionByIndex(${index}, this.checked)"
+            >
+          </label>
+          ${generateLabelHtml(order)}
+        </div>
+      `;
+    }
+
     // ============================================================
     // RENDER PREVIEW
     // ============================================================
@@ -778,14 +844,128 @@
         <span class="stat-badge stat-total">${currentOrders.length} total</span>
         <span class="stat-badge stat-delivery">🚚 ${deliveryCount} delivery</span>
         <span class="stat-badge stat-pickup">📦 ${pickupCount} pickup</span>
+        <span class="stat-badge stat-total">☑️ ${getSelectedOrderCount()} selected</span>
       `;
 
       // Build HTML
       currentHtml = buildFullDocument(currentOrders);
 
       // Render preview (individual cards, not the full print document)
-      const previewHtml = currentOrders.map(o => generateLabelHtml(o)).join('');
+      const previewHtml = currentOrders.map((o, idx) => generateOrderPreviewHtml(o, idx)).join('');
       document.getElementById('preview-area').innerHTML = previewHtml;
+      updateArchiveButtonState();
+    }
+
+    function getSelectedArchivableOrderIds() {
+      const isWixMode = (appSettings.orderSourceMode || 'wix') === 'wix';
+      if (!isWixMode) return [];
+      return currentOrders
+        .map((order) => String(order.orderId || '').trim())
+        .filter((id) => id && selectedOrderIds.has(id));
+    }
+
+    function getSelectableOrderIds() {
+      return currentOrders
+        .map((order) => String(order.orderId || '').trim())
+        .filter(Boolean);
+    }
+
+    function getSelectedOrderCount() {
+      const selectable = new Set(getSelectableOrderIds());
+      let count = 0;
+      selectedOrderIds.forEach((id) => {
+        if (selectable.has(id)) count += 1;
+      });
+      return count;
+    }
+
+    function toggleOrderSelectionByIndex(index, checked) {
+      const order = currentOrders[index];
+      const normalized = String(order?.orderId || '').trim();
+      if (!normalized) return;
+      if (checked) {
+        selectedOrderIds.add(normalized);
+      } else {
+        selectedOrderIds.delete(normalized);
+      }
+      updateArchiveButtonState();
+      if (currentOrders.length > 0) {
+        renderLabels();
+      }
+    }
+
+    function selectAllOrders() {
+      selectedOrderIds = new Set(getSelectableOrderIds());
+      if (currentOrders.length > 0) {
+        renderLabels();
+      } else {
+        updateArchiveButtonState();
+      }
+    }
+
+    function deselectAllOrders() {
+      selectedOrderIds = new Set();
+      if (currentOrders.length > 0) {
+        renderLabels();
+      } else {
+        updateArchiveButtonState();
+      }
+    }
+
+    function updateArchiveButtonState() {
+      const btn = document.getElementById('btn-archive');
+      if (!btn) return;
+      const selectedIds = getSelectedArchivableOrderIds();
+      const isEnabled = selectedIds.length > 0;
+      btn.disabled = !isEnabled;
+      btn.textContent = isEnabled ? `Archive (${selectedIds.length})` : 'Archive';
+    }
+
+    async function archiveSelectedOrders() {
+      const selectedIds = getSelectedArchivableOrderIds();
+      if (!selectedIds.length) {
+        showToast('No Wix orders selected to archive.', 'info');
+        return;
+      }
+
+      const btn = document.getElementById('btn-archive');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Archiving...';
+
+      try {
+        const result = await window.api.archiveOrders(selectedIds);
+        const successCount = Number(result?.successCount || 0);
+        const failedCount = Number(result?.failedCount || 0);
+
+        if (failedCount === 0) {
+          currentOrders = currentOrders.filter((order) => !selectedIds.includes(String(order.orderId || '').trim()));
+          selectedOrderIds = new Set(currentOrders.map((o) => String(o.orderId || '')).filter(Boolean));
+
+          if (!currentOrders.length) {
+            document.getElementById('preview-area').innerHTML = `
+              <div class="empty-state">
+                <div class="icon">✅</div>
+                <p>No orders left in the current batch.</p>
+              </div>`;
+            document.getElementById('stats-section').style.display = 'none';
+          } else {
+            renderLabels();
+          }
+        } else {
+          renderLabels();
+        }
+
+        if (failedCount > 0) {
+          showToast(`Archived ${successCount} order(s), ${failedCount} failed.`, 'error');
+        } else {
+          showToast(`Archived ${successCount} order(s).`, 'success');
+        }
+      } catch (err) {
+        showToast('Archive failed: ' + err.message, 'error');
+      }
+
+      btn.innerHTML = 'Archive';
+      updateArchiveButtonState();
     }
 
     function clearOrderHighlights() {
@@ -933,6 +1113,7 @@
       document.getElementById('wix-connection-fields').style.display = mode === 'wix' ? 'block' : 'none';
       document.getElementById('csv-connection-fields').style.display = mode === 'csv' ? 'block' : 'none';
       refreshConnectionStatus();
+      updateArchiveButtonState();
     }
 
     async function saveAllSettings(showSavedToast = true) {
@@ -942,6 +1123,7 @@
         wixApiKey: document.getElementById('wix-api-key').value.trim(),
         wixSiteId: document.getElementById('wix-site-id').value.trim(),
         pullRangeDays: parseInt(document.getElementById('pull-range').value) || 7,
+        orderArchiveFilter: document.getElementById('order-archive-filter').value || 'active',
         savePath: document.getElementById('save-path').value,
         autoSchedule: document.getElementById('toggle-schedule').classList.contains('active'),
         autoPrint: document.getElementById('toggle-autoprint').classList.contains('active'),
