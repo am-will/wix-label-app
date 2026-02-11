@@ -3,5 +3,8 @@ dist/
 *.log
 .DS_Store
 Thumbs.db
+.env
+.env.*
+!.env.example
 
 BBD18 Fuel Up Logo Tagline.avif
