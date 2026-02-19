@@ -368,6 +368,109 @@
       width: 480px;
       flex-wrap: wrap;
     }
+    .label-row-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex: 1;
+    }
+    .label-row-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .inline-check {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #374151;
+      font-weight: 600;
+    }
+    .inline-check input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      accent-color: #dc2626;
+    }
+    .btn-xs {
+      padding: 5px 10px;
+      font-size: 12px;
+      border-radius: 6px;
+    }
+    .edit-pill {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 2px 8px;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(17,24,39,0.55);
+      z-index: 1200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-backdrop.open {
+      display: flex;
+    }
+    .modal-card {
+      width: 100%;
+      max-width: 560px;
+      background: #ffffff;
+      border-radius: 12px;
+      border: 1px solid #e5e7eb;
+      box-shadow: 0 20px 50px rgba(15,23,42,0.3);
+      padding: 18px;
+    }
+    .modal-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .modal-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #111827;
+    }
+    .modal-subtitle {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 3px;
+    }
+    .modal-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .modal-grid-full {
+      grid-column: 1 / -1;
+    }
+    .modal-actions {
+      margin-top: 14px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    @media (max-width: 640px) {
+      .modal-grid {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 <body>
@@ -569,10 +672,48 @@
   <!-- TOAST -->
   <div class="toast" id="toast"></div>
 
+  <!-- EDIT LABEL MODAL -->
+  <div class="modal-backdrop" id="edit-label-modal" onclick="if(event.target===this) closeEditLabelModal()">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-label-modal-title">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="edit-label-modal-title">Edit Label</div>
+          <div class="modal-subtitle" id="edit-label-modal-subtitle"></div>
+        </div>
+        <button class="btn btn-outline btn-xs" onclick="closeEditLabelModal()">Close</button>
+      </div>
+      <div class="modal-grid">
+        <div class="form-group">
+          <label>Delivery Method</label>
+          <select id="edit-delivery-method" onchange="onEditDeliveryMethodChange()">
+            <option value="DELIVERY">Delivery</option>
+            <option value="PICKUP">Pickup</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Location (WACO / TEMPLE / custom)</label>
+          <input type="text" id="edit-location" placeholder="WACO">
+        </div>
+        <div class="form-group modal-grid-full" id="edit-address-group">
+          <label>Shipping Address (for delivery labels)</label>
+          <textarea id="edit-formatted-address" rows="4" placeholder="Street&#10;City, ST ZIP"></textarea>
+        </div>
+        <div class="form-group modal-grid-full">
+          <label>Delivery Note</label>
+          <input type="text" id="edit-delivery-note" placeholder="Leave at front desk">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="saveLabelEdit()">Save Label Edit</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     // ============================================================
     // STATE
     // ============================================================
+    let baseOrders = [];
     let currentOrders = [];
     let currentHtml = '';
     let appSettings = {};
@@ -580,6 +721,8 @@
     let lastSearchQuery = '';
     let lastSearchIndex = -1;
     let selectedOrderIds = new Set();
+    let labelOverrides = {};
+    let activeEditOrderIndex = -1;
 
     // ============================================================
     // INIT
@@ -587,6 +730,7 @@
     async function init() {
       appSettings = await window.api.getSettings();
       logoDataUrl = await window.api.getLogoDataUrl() || '';
+      labelOverrides = sanitizeLabelOverrides(appSettings.labelOverrides);
       populateSettings();
       refreshPrinters();
 
@@ -598,6 +742,87 @@
           await printLabels();
         }
       });
+    }
+
+    const EDITABLE_LABEL_FIELDS = ['deliveryMethod', 'location', 'formattedAddress', 'deliveryNote'];
+
+    function normalizeText(value) {
+      return String(value || '').replace(/\r\n/g, '\n').trim();
+    }
+
+    function normalizeDeliveryMethod(value, fallback = 'DELIVERY') {
+      const normalized = String(value || fallback).toUpperCase().trim();
+      return normalized === 'PICKUP' ? 'PICKUP' : 'DELIVERY';
+    }
+
+    function normalizeLocation(value) {
+      return String(value || '').trim().toUpperCase();
+    }
+
+    function normalizeFieldValue(field, value) {
+      if (field === 'deliveryMethod') return normalizeDeliveryMethod(value);
+      if (field === 'location') return normalizeLocation(value);
+      return normalizeText(value);
+    }
+
+    function sanitizeLabelOverrides(rawOverrides) {
+      if (!rawOverrides || typeof rawOverrides !== 'object') return {};
+      const clean = {};
+
+      Object.entries(rawOverrides).forEach(([key, value]) => {
+        const normalizedKey = String(key || '').trim();
+        if (!normalizedKey || !value || typeof value !== 'object') return;
+
+        const sanitizedEntry = {};
+        EDITABLE_LABEL_FIELDS.forEach((field) => {
+          if (!Object.prototype.hasOwnProperty.call(value, field)) return;
+          sanitizedEntry[field] = normalizeFieldValue(field, value[field]);
+        });
+
+        if (Object.keys(sanitizedEntry).length) {
+          clean[normalizedKey] = sanitizedEntry;
+        }
+      });
+
+      return clean;
+    }
+
+    function getOrderOverrideKey(order) {
+      return String(
+        order?.orderId ||
+        `${order?.orderNumber || ''}::${order?.createdDate || ''}::${order?.customerEmail || ''}::${order?.customerName || ''}`
+      ).trim();
+    }
+
+    function mergeOrderWithOverride(order) {
+      const key = getOrderOverrideKey(order);
+      const override = labelOverrides[key];
+      if (!override) return { ...order };
+
+      const merged = { ...order };
+      EDITABLE_LABEL_FIELDS.forEach((field) => {
+        if (!Object.prototype.hasOwnProperty.call(override, field)) return;
+        merged[field] = normalizeFieldValue(field, override[field]);
+      });
+
+      merged.deliveryMethod = normalizeDeliveryMethod(merged.deliveryMethod, order.deliveryMethod);
+      merged.location = normalizeLocation(merged.location);
+      merged.formattedAddress = normalizeText(merged.formattedAddress);
+      merged.deliveryNote = normalizeText(merged.deliveryNote);
+      return merged;
+    }
+
+    function buildDisplayOrders(orders) {
+      return (orders || []).map((order) => mergeOrderWithOverride(order));
+    }
+
+    function hasOrderOverride(order) {
+      return !!labelOverrides[getOrderOverrideKey(order)];
+    }
+
+    async function persistLabelOverrides() {
+      appSettings = await window.api.saveSettings({ labelOverrides });
+      labelOverrides = sanitizeLabelOverrides(appSettings.labelOverrides);
     }
 
     function populateSettings() {
@@ -640,7 +865,9 @@
       document.getElementById('status-right').textContent = 'Fetching orders...';
 
       try {
-        currentOrders = await window.api.pullOrders();
+        closeEditLabelModal();
+        baseOrders = await window.api.pullOrders();
+        currentOrders = buildDisplayOrders(baseOrders);
         selectedOrderIds = new Set(currentOrders.map((o) => String(o.orderId || '')).filter(Boolean));
 
         if (currentOrders.length === 0) {
@@ -703,8 +930,8 @@
 
     function generateLabelHtml(order, options = {}) {
       const forPrint = !!options.forPrint;
-      const dm = CONFIG[order.deliveryMethod];
-      const ot = CONFIG[order.orderType];
+      const dm = CONFIG[order.deliveryMethod] || CONFIG.DELIVERY;
+      const ot = CONFIG[order.orderType] || CONFIG.CUSTOM;
       const isDelivery = order.deliveryMethod === 'DELIVERY';
 
       const itemRows = order.items.map((item, i) => {
@@ -738,7 +965,7 @@
         addressBlock = '';
       }
 
-      const locationHtml = isDelivery && order.location
+      const locationHtml = order.location
         ? `<span style="color:#ffffff;font-size:14px;font-weight:700;letter-spacing:1px;">${escapeHtml(order.location)}</span>`
         : '';
       const logoHtml = logoDataUrl
@@ -818,21 +1045,113 @@
       const orderId = String(order.orderId || '');
       const isChecked = selectedOrderIds.has(orderId);
       const checkboxId = `archive-check-${String(index)}`;
+      const isEdited = hasOrderOverride(order);
 
       return `
         <div class="preview-order-wrap">
-          <label class="label-select-row" for="${checkboxId}">
-            <span>Archive order #${escapeHtml(order.orderNumber || '')}</span>
-            <input
-              id="${checkboxId}"
-              type="checkbox"
-              ${isChecked ? 'checked' : ''}
-              onchange="toggleOrderSelectionByIndex(${index}, this.checked)"
-            >
-          </label>
+          <div class="label-select-row">
+            <div class="label-row-left">
+              <span>Order #${escapeHtml(order.orderNumber || '')}</span>
+              ${isEdited ? '<span class="edit-pill">Edited</span>' : ''}
+            </div>
+            <div class="label-row-actions">
+              <button class="btn btn-outline btn-xs" onclick="openEditLabelModal(${index})">Edit Label</button>
+              <button class="btn btn-outline btn-xs" onclick="resetLabelOverrideByIndex(${index})" ${isEdited ? '' : 'disabled'}>Reset</button>
+              <label class="inline-check" for="${checkboxId}">
+                Archive
+                <input
+                  id="${checkboxId}"
+                  type="checkbox"
+                  ${isChecked ? 'checked' : ''}
+                  onchange="toggleOrderSelectionByIndex(${index}, this.checked)"
+                >
+              </label>
+            </div>
+          </div>
           ${generateLabelHtml(order)}
         </div>
       `;
+    }
+
+    function onEditDeliveryMethodChange() {
+      const method = normalizeDeliveryMethod(document.getElementById('edit-delivery-method').value);
+      document.getElementById('edit-address-group').style.display = method === 'DELIVERY' ? 'block' : 'none';
+    }
+
+    function openEditLabelModal(index) {
+      const order = currentOrders[index];
+      if (!order) return;
+      activeEditOrderIndex = index;
+      document.getElementById('edit-label-modal-title').textContent = `Edit Label #${order.orderNumber || ''}`;
+      document.getElementById('edit-label-modal-subtitle').textContent =
+        `Wix order stays unchanged. This only edits the printed label.`;
+      document.getElementById('edit-delivery-method').value = normalizeDeliveryMethod(order.deliveryMethod);
+      document.getElementById('edit-location').value = order.location || '';
+      document.getElementById('edit-formatted-address').value = order.formattedAddress || '';
+      document.getElementById('edit-delivery-note').value = order.deliveryNote || '';
+      onEditDeliveryMethodChange();
+      document.getElementById('edit-label-modal').classList.add('open');
+    }
+
+    function closeEditLabelModal() {
+      activeEditOrderIndex = -1;
+      document.getElementById('edit-label-modal').classList.remove('open');
+    }
+
+    function buildOrderOverride(baseOrder, draftOrder) {
+      const override = {};
+      EDITABLE_LABEL_FIELDS.forEach((field) => {
+        const baseValue = normalizeFieldValue(field, baseOrder[field]);
+        const draftValue = normalizeFieldValue(field, draftOrder[field]);
+        if (draftValue !== baseValue) {
+          override[field] = draftValue;
+        }
+      });
+      return override;
+    }
+
+    async function saveLabelEdit() {
+      if (activeEditOrderIndex < 0 || activeEditOrderIndex >= currentOrders.length) return;
+      const baseOrder = baseOrders[activeEditOrderIndex];
+      if (!baseOrder) return;
+
+      const draft = {
+        deliveryMethod: normalizeDeliveryMethod(document.getElementById('edit-delivery-method').value, baseOrder.deliveryMethod),
+        location: normalizeLocation(document.getElementById('edit-location').value),
+        formattedAddress: normalizeText(document.getElementById('edit-formatted-address').value),
+        deliveryNote: normalizeText(document.getElementById('edit-delivery-note').value)
+      };
+
+      if (draft.deliveryMethod === 'DELIVERY' && !draft.location) {
+        showToast('Delivery labels must include a location (ex: WACO or TEMPLE).', 'error');
+        return;
+      }
+
+      const key = getOrderOverrideKey(baseOrder);
+      const override = buildOrderOverride(baseOrder, draft);
+      if (Object.keys(override).length) {
+        labelOverrides[key] = override;
+      } else {
+        delete labelOverrides[key];
+      }
+
+      currentOrders = buildDisplayOrders(baseOrders);
+      renderLabels();
+      await persistLabelOverrides();
+      closeEditLabelModal();
+      showToast('Label edit saved.', 'success');
+    }
+
+    async function resetLabelOverrideByIndex(index) {
+      const baseOrder = baseOrders[index];
+      if (!baseOrder) return;
+      const key = getOrderOverrideKey(baseOrder);
+      if (!labelOverrides[key]) return;
+      delete labelOverrides[key];
+      currentOrders = buildDisplayOrders(baseOrders);
+      renderLabels();
+      await persistLabelOverrides();
+      showToast('Label reset to Wix values.', 'info');
     }
 
     // ============================================================
@@ -1138,6 +1457,7 @@
         autoSchedule: document.getElementById('toggle-schedule').classList.contains('active'),
         autoPrint: document.getElementById('toggle-autoprint').classList.contains('active'),
         scheduleEntries: appSettings.scheduleEntries || [],
+        labelOverrides,
         weightLossKeywords: document.getElementById('wl-keywords').value.split(',').map(s => s.trim()).filter(Boolean),
         weeklyPackKeywords: document.getElementById('wp-keywords').value.split(',').map(s => s.trim()).filter(Boolean),
         backOnTrackKeywords: document.getElementById('bot-keywords').value.split(',').map(s => s.trim()).filter(Boolean),
@@ -1147,6 +1467,7 @@
       };
 
       appSettings = await window.api.saveSettings(newSettings);
+      labelOverrides = sanitizeLabelOverrides(appSettings.labelOverrides);
       populateSettings();
       if (showSavedToast) showToast('Settings saved!', 'success');
     }
@@ -1267,6 +1588,12 @@
     // ============================================================
     // BOOT
     // ============================================================
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        closeEditLabelModal();
+      }
+    });
+
     init();
   </script>
 </body>
