@@ -466,6 +466,27 @@
       gap: 8px;
       flex-wrap: wrap;
     }
+    .chip-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .chip-btn {
+      border: 1px solid #d1d5db;
+      background: #f9fafb;
+      color: #374151;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.2px;
+    }
+    .chip-btn:hover {
+      background: #f3f4f6;
+    }
     @media (max-width: 640px) {
       .modal-grid {
         grid-template-columns: 1fr;
@@ -693,6 +714,11 @@
         <div class="form-group">
           <label>Location (WACO / TEMPLE / custom)</label>
           <input type="text" id="edit-location" placeholder="WACO">
+          <div class="chip-row">
+            <button type="button" class="chip-btn" onclick="setLocationChip('WACO')">Waco</button>
+            <button type="button" class="chip-btn" onclick="setLocationChip('TEMPLE')">Temple</button>
+            <button type="button" class="chip-btn" onclick="setLocationChip('')">Clear</button>
+          </div>
         </div>
         <div class="form-group modal-grid-full" id="edit-address-group">
           <label>Shipping Address (for delivery labels)</label>
@@ -1076,6 +1102,13 @@
     function onEditDeliveryMethodChange() {
       const method = normalizeDeliveryMethod(document.getElementById('edit-delivery-method').value);
       document.getElementById('edit-address-group').style.display = method === 'DELIVERY' ? 'block' : 'none';
+    }
+
+    function setLocationChip(value) {
+      const input = document.getElementById('edit-location');
+      if (!input) return;
+      input.value = normalizeLocation(value);
+      input.focus();
     }
 
     function openEditLabelModal(index) {
