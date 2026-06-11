@@ -13,6 +13,7 @@ if (process.platform === 'linux') {
 // ============================================================
 const settingsPath = path.join(app.getPath('userData'), 'settings.json');
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const CSV_ITEM_SUMMARY_NAME = 'Order Items (summary from CSV export)';
 const DEFAULT_SETTINGS = {
   orderSourceMode: 'wix',
   csvPath: '',
@@ -311,6 +312,100 @@ function inferOrderTypeFromText(text) {
   return 'CUSTOM';
 }
 
+function keywordsForOrderType(orderType) {
+  if (orderType === 'WEIGHT_LOSS_PACK') return settings.weightLossKeywords || ['weight loss'];
+  if (orderType === 'WEEKLY_PACK') return settings.weeklyPackKeywords || ['weekly pack'];
+  if (orderType === 'BACK_ON_TRACK_PACK') return settings.backOnTrackKeywords || ['back on track'];
+  return [];
+}
+
+function configuredItemsForOrderType(orderType) {
+  if (orderType === 'WEIGHT_LOSS_PACK') return settings.weightLossItems || [];
+  if (orderType === 'WEEKLY_PACK') return settings.weeklyPackItems || [];
+  if (orderType === 'BACK_ON_TRACK_PACK') return settings.backOnTrackItems || [];
+  return [];
+}
+
+function getWixLineItemName(item) {
+  return item.name || item.productName?.translated ||
+    item.productName?.original || item.catalogReference?.catalogItemName || 'Unknown Item';
+}
+
+function getWixLineItemOptions(item) {
+  return (item.descriptionLines || item.options || [])
+    .map(opt => {
+      if (typeof opt === 'string') return opt;
+      if (opt.name && opt.selection) return `${opt.name}: ${opt.selection}`;
+      if (opt.plainText) return opt.plainText.translated || opt.plainText.original || '';
+      if (opt.colorInfo) return opt.colorInfo.translated || opt.colorInfo.original || '';
+      return '';
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+function getPackTypeFromItemName(name) {
+  const itemText = String(name || '').toLowerCase();
+  const packTypes = ['WEIGHT_LOSS_PACK', 'WEEKLY_PACK', 'BACK_ON_TRACK_PACK'];
+
+  return packTypes.find((packType) => {
+    return keywordsForOrderType(packType).some((kw) => {
+      return itemText.includes(String(kw || '').toLowerCase());
+    });
+  }) || 'CUSTOM';
+}
+
+function expandPackItems(orderType, qty) {
+  const multiplier = Math.max(1, Number(qty) || 1);
+  return configuredItemsForOrderType(orderType).map((name) => ({
+    name,
+    option: '',
+    qty: multiplier
+  }));
+}
+
+function expandWixLineItems(lineItems) {
+  return lineItems.flatMap(item => {
+    const name = getWixLineItemName(item);
+    const qty = Math.max(1, Number(item.quantity) || 1);
+    const packType = getPackTypeFromItemName(name);
+
+    if (packType !== 'CUSTOM') {
+      return expandPackItems(packType, qty);
+    }
+
+    return {
+      name,
+      option: getWixLineItemOptions(item),
+      qty
+    };
+  });
+}
+
+function expandCsvItems(items, orderType, fallbackQty) {
+  if (orderType === 'CUSTOM') return items;
+
+  if (items.length === 1 && items[0].name === CSV_ITEM_SUMMARY_NAME) {
+    return expandPackItems(orderType, fallbackQty);
+  }
+
+  let foundPackItem = false;
+  const expandedItems = items.flatMap((item) => {
+    const packType = getPackTypeFromItemName(item.name);
+    if (packType === 'CUSTOM') return item;
+
+    foundPackItem = true;
+    return expandPackItems(packType, item.qty);
+  });
+
+  if (foundPackItem) return expandedItems;
+
+  return [
+    ...expandPackItems(orderType, 1),
+    ...items
+  ];
+}
+
 function inferOrderTypeFromCsvRecord(record) {
   const textType = inferOrderTypeFromText(
     `${record['Additional checkout info'] || ''} ${record['Note from customer'] || ''} ${record['Delivery method'] || ''}`
@@ -359,7 +454,7 @@ function extractCsvItems(record, fallbackQty) {
   }
 
   return [{
-    name: 'Order Items (summary from CSV export)',
+    name: CSV_ITEM_SUMMARY_NAME,
     option: '',
     qty: fallbackQty
   }];
@@ -416,16 +511,7 @@ function parseCsvOrders(csvPath, rangeDays) {
     const orderType = inferOrderTypeFromCsvRecord(record);
 
     const totalItemCount = Math.max(1, Number.parseInt(record['Total order quantity'] || '1', 10) || 1);
-    let items = [];
-    if (orderType === 'WEIGHT_LOSS_PACK') {
-      items = (settings.weightLossItems || []).map((name) => ({ name, option: '', qty: 1 }));
-    } else if (orderType === 'WEEKLY_PACK') {
-      items = (settings.weeklyPackItems || []).map((name) => ({ name, option: '', qty: 1 }));
-    } else if (orderType === 'BACK_ON_TRACK_PACK') {
-      items = (settings.backOnTrackItems || []).map((name) => ({ name, option: '', qty: 1 }));
-    } else {
-      items = extractCsvItems(record, totalItemCount);
-    }
+    const items = expandCsvItems(extractCsvItems(record, totalItemCount), orderType, totalItemCount);
 
     const shipping = parseAmount(record['Shipping rate']);
     const tax = parseAmount(record['Total tax']);
@@ -498,10 +584,7 @@ function parseOrders(rawOrders) {
 
     // Order type
     const lineItems = order.lineItems || [];
-    const itemNames = lineItems.map(item => {
-      return (item.name || item.productName?.translated ||
-              item.productName?.original || item.catalogReference?.catalogItemName || '').toLowerCase();
-    });
+    const itemNames = lineItems.map(item => getWixLineItemName(item).toLowerCase());
     const allItemsStr = itemNames.join(' | ');
 
     let orderType = 'CUSTOM';
@@ -518,29 +601,7 @@ function parseOrders(rawOrders) {
     }
 
     // Items
-    let items = [];
-    if (orderType === 'WEIGHT_LOSS_PACK') {
-      items = (settings.weightLossItems || []).map(name => ({ name, option: '', qty: 1 }));
-    } else if (orderType === 'WEEKLY_PACK') {
-      items = (settings.weeklyPackItems || []).map(name => ({ name, option: '', qty: 1 }));
-    } else if (orderType === 'BACK_ON_TRACK_PACK') {
-      items = (settings.backOnTrackItems || []).map(name => ({ name, option: '', qty: 1 }));
-    } else {
-      items = lineItems.map(item => {
-        const name = item.name || item.productName?.translated || item.productName?.original || 'Unknown Item';
-        const options = (item.descriptionLines || item.options || [])
-          .map(opt => {
-            if (typeof opt === 'string') return opt;
-            if (opt.name && opt.selection) return `${opt.name}: ${opt.selection}`;
-            if (opt.plainText) return opt.plainText.translated || opt.plainText.original || '';
-            if (opt.colorInfo) return opt.colorInfo.translated || opt.colorInfo.original || '';
-            return '';
-          })
-          .filter(Boolean)
-          .join(', ');
-        return { name, option: options, qty: item.quantity || 1 };
-      });
-    }
+    const items = expandWixLineItems(lineItems);
 
     // Customer info
     const buyer = order.buyerInfo || {};
